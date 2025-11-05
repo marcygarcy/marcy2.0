@@ -1,0 +1,11 @@
+app_name: "Pagamentos Marketplace"
+locale: "pt-PT"
+database:
+  path: "data/warehouse.duckdb"
+concil:
+  trf_window_days: 7
+reservas:
+  keywords: ["reserv", "reten", "hold", "escrow"]
+penalizacoes:
+  keywords: ["penal", "multa", "ajuste", "fee", "retenc", "reserva", "hold", "escrow"]
+

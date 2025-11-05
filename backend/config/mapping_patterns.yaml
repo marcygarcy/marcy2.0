@@ -1,0 +1,31 @@
+bucket_map:
+  "Valor do pedido": itens
+  "Imposto sobre o valor do pedido": imp_itens
+  "Valor do envio do pedido": envio
+  "Imposto sobre o valor do envio do pedido": imp_envio
+  "Taxa": taxas
+  "Taxas": taxas
+  "Taxa do vendedor": taxas
+  "Taxa de assinatura": taxas
+  "Imposto sobre taxas": imp_taxas
+  "Imposto sobre a assinatura": imp_taxas
+  "Imposto sobre comiss": imp_taxas
+  "Fatura manual": fatura_manual
+  "Imposto sobre fatura manual": imp_fatura_manual
+  "Crédito manual": credito_manual
+  "Imposto sobre crédito manual": imp_credito_manual
+  "Valor do pedido de reembolso": refunds_itens
+  "Imposto sobre o valor do pedido de reembolso": imp_refunds_itens
+
+unknown_bucket: outros
+
+regex:
+  credito_manual: "(?i)cr.?dito manual"
+  imposto_credito_manual: "(?i)imposto sobre cr.?dito manual"
+  fatura_manual: "(?i)fatura manual"
+  imposto_fatura_manual: "(?i)imposto sobre fatura manual"
+  taxas_generico: "(?i)taxa|taxas"
+  imposto_taxas: "(?i)imposto sobre (taxas|comiss|assinatura)"
+  refunds_itens: "(?i)valor do pedido de reembolso"
+  imp_refunds_itens: "(?i)imposto sobre o valor do pedido de reembolso"
+

@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>💳 Pagamentos Marketplace</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <!-- XLSX - Usar unpkg (mais confiável) -->
+    <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script>
+        // Função para atualizar status do XLSX
+        function updateXLSXStatus(loaded) {
+            const xlsxStatus = document.getElementById('xlsxStatus');
+            if (xlsxStatus) {
+                if (loaded) {
+                    xlsxStatus.innerHTML = '✅ XLSX carregado';
+                    xlsxStatus.style.color = '#4ade80';
+                } else {
+                    xlsxStatus.innerHTML = '❌ XLSX não disponível. Recarregue a página.';
+                    xlsxStatus.style.color = '#ef4444';
+                }
+            }
+        }
+        
+        // Tentar fallback se XLSX não carregar
+        function loadXLSXFallback() {
+            if (typeof XLSX === 'undefined') {
+                console.warn('CDN principal falhou, tentando fallback...');
+                const script = document.createElement('script');
+                script.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+                script.onload = function() {
+                    console.log('✅ XLSX carregado via fallback');
+                    if (typeof XLSX !== 'undefined') {
+                        updateXLSXStatus(true);
+                    } else {
+                        console.error('❌ XLSX não carregou mesmo com fallback!');
+                        updateXLSXStatus(false);
+                    }
+                };
+                script.onerror = function() {
+                    console.error('❌ Erro ao carregar XLSX de ambos os CDNs!');
+                    updateXLSXStatus(false);
+                };
+                document.head.appendChild(script);
+            }
+        }
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <script>
+        // Verificar se as bibliotecas carregaram e atualizar UI
+        window.addEventListener('load', function() {
+            setTimeout(function() {
+                const xlsxStatus = document.getElementById('xlsxStatus');
+                const papaStatus = document.getElementById('papaStatus');
+                
+                if (typeof XLSX === 'undefined') {
+                    console.error('❌ XLSX não carregou!');
+                    console.warn('Tentando carregar fallback...');
+                    if (xlsxStatus) {
+                        xlsxStatus.innerHTML = '❌ XLSX não carregou. Tentando alternativa...';
+                        xlsxStatus.style.color = '#f87171';
+                    }
+                    loadXLSXFallback();
+                    // Verificar novamente após 3 segundos
+                    setTimeout(function() {
+                        if (typeof XLSX === 'undefined') {
+                            updateXLSXStatus(false);
+                        } else {
+                            updateXLSXStatus(true);
+                        }
+                    }, 3000);
+                } else {
+                    console.log('✅ XLSX carregado com sucesso');
+                    updateXLSXStatus(true);
+                }
+                
+                if (typeof Papa === 'undefined') {
+                    console.error('❌ PapaParse não carregou!');
+                    if (papaStatus) {
+                        papaStatus.innerHTML = '❌ PapaParse não carregou';
+                        papaStatus.style.color = '#f87171';
+                    }
+                } else {
+                    console.log('✅ PapaParse carregado com sucesso');
+                    if (papaStatus) {
+                        papaStatus.innerHTML = '✅ PapaParse carregado';
+                        papaStatus.style.color = '#4ade80';
+                    }
+                }
+            }, 1000);
+        });
+    </script>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header>
+            <h1>💳 Pagamentos Marketplace</h1>
+            <p class="subtitle">Análise de transações, comissões e conciliação bancária</p>
+        </header>
+
+        <!-- Tabs Navigation -->
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="upload">📥 Upload</button>
+            <button class="tab-btn" data-tab="kpis">📊 KPIs</button>
+            <button class="tab-btn" data-tab="resumo">📋 Resumo Último Ciclo</button>
+            <button class="tab-btn" data-tab="conciliacao">🔄 Conciliação</button>
+            <button class="tab-btn" data-tab="comissoes">💸 Comissões</button>
+            <button class="tab-btn" data-tab="reservas">🔒 Reservas</button>
+            <button class="tab-btn" data-tab="prazos">⏱️ Prazos</button>
+            <button class="tab-btn" data-tab="faturas">🧾 Faturas</button>
+            <button class="tab-btn" data-tab="extrato">🏦 Extrato Bancário</button>
+            <button class="tab-btn" data-tab="conciliacao-detalhada">📊 Conciliação Detalhada</button>
+        </div>
+
+        <!-- Tab Content -->
+        <div class="tab-content">
+            <!-- Upload Tab -->
+            <div id="upload-tab" class="tab-pane active">
+                <div class="card">
+                    <h2>📤 Carregar Ficheiros</h2>
+                    <div class="upload-section">
+                        <div class="file-type-selector">
+                            <label>Tipo de Ficheiro:</label>
+                            <select id="fileType">
+                                <option value="transactions">Histórico de Transações (XLSX/CSV)</option>
+                                <option value="trf">Transferências Bancárias (XLSX/CSV)</option>
+                                <option value="extrato">Extrato Bancário (XLSX/CSV)</option>
+                            </select>
+                        </div>
+                        <div class="file-drop-zone" id="dropZone">
+                            <input type="file" id="fileInput" accept=".xlsx,.csv,.xls" style="display: none;">
+                            <div class="drop-content">
+                                <div class="upload-icon">📁</div>
+                                <p id="fileText">Clique para selecionar ou arraste o ficheiro</p>
+                                <p class="file-hint">XLSX ou CSV</p>
+                            </div>
+                        </div>
+                        <div id="uploadStatus"></div>
+                        <div id="libraryStatus" style="margin-top: 1rem; padding: 0.75rem; background: #1e293b; border-radius: 0.5rem; font-size: 0.875rem; color: #94a3b8;">
+                            <div id="xlsxStatus">⏳ Carregando XLSX...</div>
+                            <div id="papaStatus">⏳ Carregando PapaParse...</div>
+                        </div>
+                        <button id="processBtn" class="btn btn-primary" disabled>Processar Ficheiro</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- KPIs Tab -->
+            <div id="kpis-tab" class="tab-pane">
+                <div id="uploadStats" class="stats-grid"></div>
+                <div id="kpiCards" class="kpi-grid"></div>
+                <div id="kpiDetails" class="details-grid"></div>
+            </div>
+
+            <!-- Resumo Último Ciclo Tab -->
+            <div id="resumo-tab" class="tab-pane">
+                <div class="card">
+                    <h2 id="resumoTitle">📋 Resumo - Último Ciclo</h2>
+                    <div id="cycleBreakdown"></div>
+                </div>
+            </div>
+
+            <!-- Conciliação Tab -->
+            <div id="conciliacao-tab" class="tab-pane">
+                <div class="card">
+                    <h2>🔄 Conciliação: Net vs TRF (+0/+7 dias)</h2>
+                    <div id="reconciliationTable"></div>
+                </div>
+            </div>
+
+            <!-- Comissões Tab -->
+            <div id="comissoes-tab" class="tab-pane">
+                <div class="card">
+                    <h2>💸 Comissões por Ciclo</h2>
+                    <canvas id="comissoesChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Reservas Tab -->
+            <div id="reservas-tab" class="tab-pane">
+                <div class="card">
+                    <h2>🔒 Reservas</h2>
+                    <div id="reservasInfo"></div>
+                </div>
+            </div>
+
+            <!-- Prazos Tab -->
+            <div id="prazos-tab" class="tab-pane">
+                <div class="card">
+                    <h2>⏱️ Análise de Prazos</h2>
+                    <div id="prazosInfo"></div>
+                </div>
+            </div>
+
+            <!-- Faturas Tab -->
+            <div id="faturas-tab" class="tab-pane">
+                <div class="card">
+                    <h2>🧾 Análise de Faturas</h2>
+                    <div id="faturasInfo"></div>
+                </div>
+            </div>
+
+            <!-- Extrato Bancário Tab -->
+            <div id="extrato-tab" class="tab-pane">
+                <div class="card">
+                    <h2>🏦 Extrato Bancário</h2>
+                    <div id="extratoInfo"></div>
+                </div>
+            </div>
+
+            <!-- Conciliação Detalhada Tab -->
+            <div id="conciliacao-detalhada-tab" class="tab-pane">
+                <div class="card">
+                    <h2>📊 Conciliação Detalhada: Marketplace vs Banco</h2>
+                    <div id="conciliacaoDetalhadaInfo"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
+

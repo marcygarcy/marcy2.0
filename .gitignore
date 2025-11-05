@@ -1,0 +1,77 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+*.egg-info/
+dist/
+build/
+
+# DuckDB Database
+*.duckdb
+*.duckdb.wal
+data/
+backend/data/
+
+# Node
+node_modules/
+.next/
+out/
+.nuxt/
+dist/
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+~$*
+
+# Excel/CSV test files (opcional - comentar se quiser versionar)
+*.xlsx
+*.xls
+*.csv
+!backend/ESTRUTURA_FICHEIRO.md
+
+# PDF files (faturas)
+*.pdf
+
+# Uploaded files
+backend/data/invoices/
+uploads/
+
+# Build outputs
+frontend/.next/
+frontend/out/
+frontend/build/
