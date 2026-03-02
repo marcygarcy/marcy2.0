@@ -23,9 +23,20 @@ export interface AllInvoicesResponse {
   invoices_by_cycle: Record<string, Invoice[]>;
 }
 
+export interface CycleWithFiles {
+  cycle: string;
+  has_files: boolean;
+  files: Array<{ nome: string; tipo: string }>;
+}
+
 export const invoicesApi = {
   async getCycles(): Promise<string[]> {
     const response = await apiClient.get<CycleOption>('/api/v1/invoices/cycles');
+    return response.data.cycles;
+  },
+
+  async getCyclesWithFiles(): Promise<CycleWithFiles[]> {
+    const response = await apiClient.get<{ cycles: CycleWithFiles[] }>('/api/v1/invoices/cycles-with-files');
     return response.data.cycles;
   },
 

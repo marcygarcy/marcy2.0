@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s \"http://localhost:8000/openapi.json\")",
+      "Bash(python -c \"import sys, json; d=json.load\\(sys.stdin\\); sales=[p for p in d[''paths''] if ''sales'' in p or ''purchase'' in p or ''supplier'' in p or ''automation'' in p or ''finance'' in p]; print\\(''Rotas novas:'', sales[:20]\\)\")",
+      "Bash(curl -s \"http://localhost:8000/api/v1/sales/stats?empresa_id=2\")",
+      "Bash(powershell -Command \"Get-CimInstance Win32_Process | Where-Object {$_CommandLine -like ''*uvicorn*'' -or $_CommandLine -like ''*main:app*''} | Select-Object ProcessId, CommandLine\")"
+    ]
+  }
+}

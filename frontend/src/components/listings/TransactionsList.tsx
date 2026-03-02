@@ -7,8 +7,10 @@ import { transactionsApi } from '@/lib/api/transactions';
 import type { Transaction } from '@/types/transactions';
 import { formatCurrency } from '@/lib/utils';
 import { Search } from 'lucide-react';
+import { useApp } from '@/context/AppContext';
 
 export function TransactionsList() {
+  const { empresaSelecionada, marketplaceSelecionado } = useApp();
   const { cycles, loading: cyclesLoading } = useInvoices();
   const [selectedCycle, setSelectedCycle] = useState<string>('todos');
   const [cicloInicio, setCicloInicio] = useState<string>('');
@@ -30,7 +32,7 @@ export function TransactionsList() {
   useEffect(() => {
     loadTransactions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCycle, cicloInicio, cicloFim, filterMode, selectedType]);
+  }, [selectedCycle, cicloInicio, cicloFim, filterMode, selectedType, empresaSelecionada?.id, marketplaceSelecionado?.id]);
 
   const loadTransactionTypes = async () => {
     try {
@@ -53,7 +55,9 @@ export function TransactionsList() {
         filterMode === 'range' && cicloFim ? cicloFim : null,
         selectedType !== 'todos' ? selectedType : null,
         10000,
-        0
+        0,
+        empresaSelecionada?.id,
+        marketplaceSelecionado?.id
       );
       setTransactions(response.transactions);
       setTotal(response.total);

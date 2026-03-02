@@ -1,15 +1,17 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Upload, X, Download, Trash2, FileText } from 'lucide-react';
+import { Upload, X, Download, Trash2, FileText, File } from 'lucide-react';
 import { useInvoices, useInvoicesByCycle } from '@/lib/hooks/useInvoices';
-import { invoicesApi } from '@/lib/api/invoices';
+import { invoicesApi, type CycleWithFiles } from '@/lib/api/invoices';
 import type { InvoiceType } from '@/types/invoices';
 
 export function InvoiceManager() {
   const { cycles, loading: cyclesLoading } = useInvoices();
+  const [cyclesInfo, setCyclesInfo] = useState<CycleWithFiles[]>([]);
+  const [loadingCyclesInfo, setLoadingCyclesInfo] = useState(false);
   const [selectedCycle, setSelectedCycle] = useState<string>('');
   const [selectedType, setSelectedType] = useState<InvoiceType>('fatura');
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -19,6 +21,22 @@ export function InvoiceManager() {
   const { invoices, loading: invoicesLoading, refresh: refreshInvoices } = useInvoicesByCycle(
     selectedCycle || null
   );
+
+  useEffect(() => {
+    loadCyclesWithFiles();
+  }, []);
+
+  const loadCyclesWithFiles = async () => {
+    try {
+      setLoadingCyclesInfo(true);
+      const info = await invoicesApi.getCyclesWithFiles();
+      setCyclesInfo(info);
+    } catch (error) {
+      console.error('Erro ao carregar informações de ciclos:', error);
+    } finally {
+      setLoadingCyclesInfo(false);
+    }
+  };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -69,6 +87,7 @@ export function InvoiceManager() {
           setUploadMessage({ type: 'success', text: `${successCount} faturas carregadas com sucesso!` });
           setSelectedFiles([]);
           refreshInvoices();
+          loadCyclesWithFiles(); // Atualizar informações de ciclos
         } else if (successCount > 0) {
           setUploadMessage({ 
             type: 'error', 
@@ -85,9 +104,10 @@ export function InvoiceManager() {
           });
         }
       } else if (result.success) {
-        setUploadMessage({ type: 'success', text: 'Faturas carregadas com sucesso!' });
-        setSelectedFiles([]);
-        refreshInvoices();
+          setUploadMessage({ type: 'success', text: 'Faturas carregadas com sucesso!' });
+          setSelectedFiles([]);
+          refreshInvoices();
+          loadCyclesWithFiles(); // Atualizar informações de ciclos
       } else {
         setUploadMessage({ type: 'error', text: result.message || 'Erro ao carregar faturas' });
       }
@@ -123,6 +143,7 @@ export function InvoiceManager() {
     try {
       await invoicesApi.deleteInvoice(invoiceId);
       refreshInvoices();
+      loadCyclesWithFiles(); // Atualizar informações de ciclos
     } catch (error) {
       console.error('Erro ao eliminar fatura:', error);
       alert('Erro ao eliminar fatura');
@@ -149,23 +170,68 @@ export function InvoiceManager() {
               <label className="block text-sm font-medium mb-3 text-slate-300">
                 Ciclo de Pagamento
               </label>
-              <select
-                value={selectedCycle}
-                onChange={(e) => {
-                  setSelectedCycle(e.target.value);
-                  setSelectedFiles([]);
-                  setUploadMessage(null);
-                }}
-                className="w-full px-4 py-2 bg-slate-600 border border-slate-500 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                disabled={cyclesLoading}
-              >
-                <option value="">Selecione um ciclo...</option>
-                {cycles.map((cycle) => (
-                  <option key={cycle} value={cycle}>
-                    {cycle}
-                  </option>
-                ))}
-              </select>
+              <div className="relative">
+                <select
+                  value={selectedCycle}
+                  onChange={(e) => {
+                    setSelectedCycle(e.target.value);
+                    setSelectedFiles([]);
+                    setUploadMessage(null);
+                  }}
+                  className="w-full px-4 py-2 bg-slate-600 border border-slate-500 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                  disabled={cyclesLoading || loadingCyclesInfo}
+                >
+                  <option value="">Selecione um ciclo...</option>
+                  {cyclesInfo.length > 0 ? (
+                    cyclesInfo.map((cycleInfo) => (
+                      <option key={cycleInfo.cycle} value={cycleInfo.cycle}>
+                        {cycleInfo.cycle} {cycleInfo.has_files ? '📄' : ''}
+                      </option>
+                    ))
+                  ) : (
+                    cycles.map((cycle) => (
+                      <option key={cycle} value={cycle}>
+                        {cycle}
+                      </option>
+                    ))
+                  )}
+                </select>
+                
+                {/* Tooltips para ciclos com ficheiros */}
+                {cyclesInfo.filter(ci => ci.has_files).length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {cyclesInfo
+                      .filter(ci => ci.has_files)
+                      .slice(0, 5) // Mostrar apenas os primeiros 5 para não ocupar muito espaço
+                      .map((cycleInfo) => (
+                        <div
+                          key={cycleInfo.cycle}
+                          className="group relative inline-block mr-4"
+                        >
+                          <div className="flex items-center gap-2 text-xs text-slate-400 cursor-help">
+                            <span>{cycleInfo.cycle}</span>
+                            <File size={14} className="text-blue-400" />
+                            <span className="text-slate-500">({cycleInfo.files.length})</span>
+                          </div>
+                          {/* Tooltip */}
+                          <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block z-50 bg-slate-800 border border-slate-600 rounded-lg p-3 shadow-lg min-w-[250px] max-w-[400px]">
+                            <div className="text-xs font-semibold text-slate-300 mb-2">
+                              Ficheiros carregados:
+                            </div>
+                            <div className="space-y-1 max-h-48 overflow-y-auto">
+                              {cycleInfo.files.map((file, idx) => (
+                                <div key={idx} className="text-xs text-slate-400">
+                                  <span className="font-medium text-slate-300">{file.nome}</span>
+                                  <span className="text-slate-500 ml-2">({file.tipo})</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Seleção de Tipo */}

@@ -16,6 +16,14 @@ class KPIService:
     def __init__(self):
         self.conn = get_db_connection()
     
+    def _build_keyword_conditions(self, keywords: list, column: str = "LOWER(COALESCE(Descrição, ''))") -> tuple[str, list]:
+        """Constrói condições LIKE parametrizadas para lista de keywords (evita SQL injection)."""
+        if not keywords:
+            return "1=0", []
+        placeholders = " OR ".join([f"{column} LIKE ?" for _ in keywords])
+        params = [f"%{kw.lower()}%" for kw in keywords]
+        return f"({placeholders})", params
+
     def _build_filter_clause(self, empresa_id: Optional[int] = None, marketplace_id: Optional[int] = None) -> tuple[str, list]:
         """Constrói cláusula WHERE para filtrar por empresa/marketplace."""
         conditions = []
@@ -259,28 +267,24 @@ class KPIService:
         filter_clause, filter_params = self._build_filter_clause(empresa_id, marketplace_id)
         
         keywords = get_reserva_keywords()
-        # Criar condições OR para cada keyword
-        keyword_conditions = " OR ".join([
-            f"LOWER(COALESCE(Descrição, '')) LIKE '%{kw}%'" 
-            for kw in keywords
-        ])
-        
+        kw_clause, kw_params = self._build_keyword_conditions(keywords)
+
         query = f"""
             WITH res AS (
                 SELECT SUM(real) AS saldo
                 FROM transactions
                 WHERE (
-                    LOWER(Tipo) LIKE '%fatura manual%' 
+                    LOWER(Tipo) LIKE '%fatura manual%'
                     OR LOWER(Tipo) LIKE '%cr%dito manual%'
                 )
-                AND ({keyword_conditions}){filter_clause}
+                AND {kw_clause}{filter_clause}
             )
             SELECT COALESCE(saldo, 0) AS reserva_saldo FROM res
         """
-        
-        result = self.conn.execute(query, filter_params).fetchone()
+
+        result = self.conn.execute(query, kw_params + filter_params).fetchone()
         saldo = float(result[0] or 0) if result else 0.0
-        
+
         # Último ciclo de constituição
         ult_query = f"""
             SELECT "Ciclo Pagamento"
@@ -288,18 +292,18 @@ class KPIService:
                 SELECT "Ciclo Pagamento", SUM(real) AS v
                 FROM transactions
                 WHERE (
-                    LOWER(Tipo) LIKE '%fatura manual%' 
+                    LOWER(Tipo) LIKE '%fatura manual%'
                     OR LOWER(Tipo) LIKE '%cr%dito manual%'
                 )
-                AND ({keyword_conditions}){filter_clause}
+                AND {kw_clause}{filter_clause}
                 GROUP BY 1
             )
             WHERE v < 0
             ORDER BY "Ciclo Pagamento" DESC
             LIMIT 1
         """
-        
-        ult_ciclo_result = self.conn.execute(ult_query, filter_params).fetchone()
+
+        ult_ciclo_result = self.conn.execute(ult_query, kw_params + filter_params).fetchone()
         ult_ciclo = ult_ciclo_result[0] if ult_ciclo_result else None
         
         return ReservaResponse(saldo=saldo, ultimo_ciclo=ult_ciclo)
@@ -308,20 +312,13 @@ class KPIService:
         """Obtém lista de todas as reservas."""
         from app.config.settings import get_reserva_keywords
         
-        keywords = get_reserva_keywords()
-        # Adicionar "rolling" às keywords baseado na imagem
-        keywords = keywords + ["rolling"]
-        
+        keywords = get_reserva_keywords() + ["rolling"]
+        kw_clause, kw_params = self._build_keyword_conditions(keywords)
+
         filter_clause, filter_params = self._build_filter_clause(empresa_id, marketplace_id)
-        
-        # Criar condições OR para cada keyword
-        keyword_conditions = " OR ".join([
-            f"LOWER(COALESCE(Descrição, '')) LIKE '%{kw}%'" 
-            for kw in keywords
-        ])
-        
+
         query = f"""
-            SELECT 
+            SELECT
                 "Nº da transação",
                 "Data Criação",
                 "Nº da fatura",
@@ -335,14 +332,14 @@ class KPIService:
                 Débito
             FROM transactions
             WHERE (
-                LOWER(Tipo) LIKE '%fatura manual%' 
+                LOWER(Tipo) LIKE '%fatura manual%'
                 OR LOWER(Tipo) LIKE '%cr%dito manual%'
             )
-            AND ({keyword_conditions}){filter_clause}
+            AND {kw_clause}{filter_clause}
             ORDER BY "Ciclo Pagamento" DESC, "Data Criação" DESC
         """
-        
-        result = self.conn.execute(query, filter_params).fetchall()
+
+        result = self.conn.execute(query, kw_params + filter_params).fetchall()
         
         reservas = []
         for row in result:
@@ -524,6 +521,50 @@ class KPIService:
             except:
                 return 0.0
     
+    def get_comissoes_por_ciclo(self, empresa_id: Optional[int] = None, marketplace_id: Optional[int] = None) -> List[Dict]:
+        """Obtém comissões e impostos agrupados por ciclo."""
+        try:
+            filter_clause, filter_params = self._build_filter_clause(empresa_id, marketplace_id)
+            query = f"""
+                SELECT
+                    "Ciclo Pagamento",
+                    MAX("Data do ciclo de faturamento") AS data_ciclo,
+                    COALESCE(SUM(CASE
+                        WHEN LOWER(Tipo) LIKE '%taxa%'
+                          OR LOWER(Tipo) LIKE '%comiss%'
+                        THEN COALESCE(Débito, 0) ELSE 0
+                    END), 0) AS comissoes,
+                    COALESCE(SUM(CASE
+                        WHEN LOWER(Tipo) LIKE '%imposto%taxa%'
+                          OR LOWER(Tipo) LIKE '%imposto%comiss%'
+                        THEN COALESCE(Débito, 0) ELSE 0
+                    END), 0) AS imposto
+                FROM transactions
+                WHERE "Ciclo Pagamento" IS NOT NULL
+                  AND Tipo IS NOT NULL
+                  AND (LOWER(Tipo) LIKE '%taxa%'
+                   OR LOWER(Tipo) LIKE '%comiss%'
+                   OR LOWER(Tipo) LIKE '%imposto%taxa%'
+                   OR LOWER(Tipo) LIKE '%imposto%comiss%'){filter_clause}
+                GROUP BY "Ciclo Pagamento"
+                ORDER BY MAX("Data do ciclo de faturamento") ASC
+            """
+            result = self.conn.execute(query, filter_params).fetchall()
+            return [
+                {
+                    "ciclo": row[0] or "",
+                    "data_ciclo": str(row[1]) if row[1] else "",
+                    "comissoes": float(row[2] or 0),
+                    "imposto": float(row[3] or 0),
+                }
+                for row in result
+            ]
+        except Exception as e:
+            print(f"Erro ao calcular comissões por ciclo: {e}")
+            import traceback
+            print(traceback.format_exc())
+            return []
+
     def get_vendas_brutas_por_ciclo(self, empresa_id: Optional[int] = None, marketplace_id: Optional[int] = None) -> List[Dict]:
         """Obtém vendas brutas agrupadas por ciclo."""
         try:
@@ -772,17 +813,8 @@ class KPIService:
             for row in result
         ]
     
-    def get_last_cycle_breakdown(self, empresa_id: Optional[int] = None, marketplace_id: Optional[int] = None) -> Dict:
-        """Obtém breakdown detalhado do último ciclo por tipo de transação."""
-        latest_cycle = self.get_latest_cycle(empresa_id=empresa_id, marketplace_id=marketplace_id)
-        if not latest_cycle:
-            return {
-                "ciclo": None,
-                "data_ciclo": None,
-                "breakdown": [],
-                "total_net": 0.0
-            }
-        
+    def get_cycle_breakdown(self, ciclo: str, empresa_id: Optional[int] = None, marketplace_id: Optional[int] = None) -> Dict:
+        """Obtém breakdown detalhado de um ciclo específico por tipo de transação."""
         filter_clause, filter_params = self._build_filter_clause(empresa_id, marketplace_id)
         
         # Obter data do ciclo
@@ -791,7 +823,7 @@ class KPIService:
             FROM transactions
             WHERE "Ciclo Pagamento" = ?{filter_clause}
         """
-        cycle_date_result = self.conn.execute(query_cycle, [latest_cycle] + filter_params).fetchone()
+        cycle_date_result = self.conn.execute(query_cycle, [ciclo] + filter_params).fetchone()
         
         cycle_date = str(cycle_date_result[0]) if cycle_date_result and cycle_date_result[0] else None
         
@@ -808,7 +840,7 @@ class KPIService:
             GROUP BY Tipo
             ORDER BY ABS(SUM(real)) DESC
         """
-        breakdown_result = self.conn.execute(query_breakdown, [latest_cycle] + filter_params).fetchall()
+        breakdown_result = self.conn.execute(query_breakdown, [ciclo] + filter_params).fetchall()
         
         breakdown = [
             {
@@ -825,11 +857,60 @@ class KPIService:
         total_net = sum(item["real"] for item in breakdown)
         
         return {
-            "ciclo": latest_cycle,
+            "ciclo": ciclo,
             "data_ciclo": cycle_date,
             "breakdown": breakdown,
             "total_net": total_net
         }
+    
+    def get_last_cycle_breakdown(self, empresa_id: Optional[int] = None, marketplace_id: Optional[int] = None) -> Dict:
+        """Obtém breakdown detalhado do último ciclo por tipo de transação."""
+        latest_cycle = self.get_latest_cycle(empresa_id=empresa_id, marketplace_id=marketplace_id)
+        if not latest_cycle:
+            return {
+                "ciclo": None,
+                "data_ciclo": None,
+                "breakdown": [],
+                "total_net": 0.0
+            }
+        
+        return self.get_cycle_breakdown(latest_cycle, empresa_id=empresa_id, marketplace_id=marketplace_id)
+    
+    def get_available_cycles(self, empresa_id: Optional[int] = None, marketplace_id: Optional[int] = None) -> List[str]:
+        """Obtém lista de ciclos disponíveis ordenados por data."""
+        filter_clause, filter_params = self._build_filter_clause(empresa_id, marketplace_id)
+        
+        try:
+            query = f"""
+                SELECT "Ciclo Pagamento"
+                FROM (
+                    SELECT 
+                        "Ciclo Pagamento",
+                        MAX("Data do ciclo de faturamento") AS max_date
+                    FROM transactions
+                    WHERE "Ciclo Pagamento" IS NOT NULL
+                      AND "Ciclo Pagamento" != ''{filter_clause}
+                    GROUP BY "Ciclo Pagamento"
+                )
+                ORDER BY max_date DESC
+            """
+            result = self.conn.execute(query, filter_params).fetchall()
+            return [row[0] for row in result if row[0]]
+        except Exception as e:
+            print(f"Erro ao obter ciclos: {e}")
+            try:
+                # Fallback: query mais simples
+                query = f"""
+                    SELECT DISTINCT "Ciclo Pagamento"
+                    FROM transactions
+                    WHERE "Ciclo Pagamento" IS NOT NULL
+                      AND "Ciclo Pagamento" != ''{filter_clause}
+                    ORDER BY "Ciclo Pagamento" DESC
+                """
+                result = self.conn.execute(query, filter_params).fetchall()
+                return [row[0] for row in result if row[0]]
+            except:
+                return []
     
     def get_ultimo_ciclo_pago(self, empresa_id: Optional[int] = None, marketplace_id: Optional[int] = None) -> Dict:
         """Obtém o último ciclo pago (baseado em movimentos bancários) e o seu valor."""

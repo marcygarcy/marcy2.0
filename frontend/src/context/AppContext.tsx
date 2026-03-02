@@ -22,16 +22,39 @@ export interface Marketplace {
   ativo: boolean;
 }
 
+export interface Modulo {
+  id: string;
+  nome: string;
+  icone?: string;
+}
+
+/** Navegação one-shot para Finanças: abrir tab (pagamentos ou ledger) e opcionalmente preselecionar fornecedor na Conta Corrente */
+export interface FinancasNavigation {
+  tab: 'pagamentos' | 'ledger';
+  supplierId?: number;
+}
+
 interface AppContextType {
+  moduloSelecionado: Modulo | null;
   empresaSelecionada: Empresa | null;
   marketplaceSelecionado: Marketplace | null;
+  financasNavigation: FinancasNavigation | null;
+  setModuloSelecionado: (modulo: Modulo | null) => void;
   setEmpresaSelecionada: (empresa: Empresa | null) => void;
   setMarketplaceSelecionado: (marketplace: Marketplace | null) => void;
+  setFinancasNavigation: (nav: FinancasNavigation | null) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export function AppProvider({ children }: { children: ReactNode }) {
+  // Módulo padrão: Recebimentos de Marketplaces
+  const DEFAULT_MODULO: Modulo = {
+    id: 'recebimentos-marketplaces',
+    nome: 'Recebimentos de Marketplaces',
+    icone: '💳'
+  };
+
   // Valores padrão: Teste 123 (ID=2) e Pixmania (ID=1)
   const DEFAULT_EMPRESA: Empresa = {
     id: 2,
@@ -47,13 +70,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
     ativo: true
   };
 
+  const [moduloSelecionado, setModuloSelecionadoState] = useState<Modulo | null>(DEFAULT_MODULO);
   const [empresaSelecionada, setEmpresaSelecionadaState] = useState<Empresa | null>(DEFAULT_EMPRESA);
   const [marketplaceSelecionado, setMarketplaceSelecionadoState] = useState<Marketplace | null>(DEFAULT_MARKETPLACE);
+  const [financasNavigation, setFinancasNavigationState] = useState<FinancasNavigation | null>(null);
 
-  // Carregar do localStorage ao inicializar, ou usar padrão
+  // Carregar do localStorage ao inicializar (apenas no browser)
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const moduloSaved = localStorage.getItem('moduloSelecionado');
     const empresaSaved = localStorage.getItem('empresaSelecionada');
     const marketplaceSaved = localStorage.getItem('marketplaceSelecionado');
+    
+    if (moduloSaved) {
+      try {
+        const modulo = JSON.parse(moduloSaved);
+        setModuloSelecionadoState(modulo);
+      } catch (e) {
+        console.error('Erro ao carregar módulo do localStorage:', e);
+        setModuloSelecionadoState(DEFAULT_MODULO);
+      }
+    } else {
+      setModuloSelecionadoState(DEFAULT_MODULO);
+      localStorage.setItem('moduloSelecionado', JSON.stringify(DEFAULT_MODULO));
+    }
     
     if (empresaSaved) {
       try {
@@ -64,7 +104,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setEmpresaSelecionadaState(DEFAULT_EMPRESA);
       }
     } else {
-      // Se não houver no localStorage, usar padrão
       setEmpresaSelecionadaState(DEFAULT_EMPRESA);
       localStorage.setItem('empresaSelecionada', JSON.stringify(DEFAULT_EMPRESA));
     }
@@ -78,11 +117,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setMarketplaceSelecionadoState(DEFAULT_MARKETPLACE);
       }
     } else {
-      // Se não houver no localStorage, usar padrão
       setMarketplaceSelecionadoState(DEFAULT_MARKETPLACE);
       localStorage.setItem('marketplaceSelecionado', JSON.stringify(DEFAULT_MARKETPLACE));
     }
   }, []);
+
+  const setModuloSelecionado = (modulo: Modulo | null) => {
+    const moduloToUse = modulo || DEFAULT_MODULO;
+    setModuloSelecionadoState(moduloToUse);
+    localStorage.setItem('moduloSelecionado', JSON.stringify(moduloToUse));
+  };
 
   const setEmpresaSelecionada = (empresa: Empresa | null) => {
     const empresaToUse = empresa || DEFAULT_EMPRESA;
@@ -116,13 +160,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const setFinancasNavigation = (nav: FinancasNavigation | null) => {
+    setFinancasNavigationState(nav);
+  };
+
   return (
     <AppContext.Provider
       value={{
+        moduloSelecionado,
         empresaSelecionada,
         marketplaceSelecionado,
+        financasNavigation,
+        setModuloSelecionado,
         setEmpresaSelecionada,
         setMarketplaceSelecionado,
+        setFinancasNavigation,
       }}
     >
       {children}

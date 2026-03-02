@@ -23,16 +23,28 @@ export function FileUpload({ onSuccess }: FileUploadProps) {
   };
 
   const handleUpload = async () => {
-    if (!file) return;
+    console.log('[FILE_UPLOAD] handleUpload chamado', { 
+      hasFile: !!file, 
+      fileName: file?.name,
+      uploadType 
+    });
+    
+    if (!file) {
+      console.warn('[FILE_UPLOAD] Nenhum ficheiro selecionado');
+      return;
+    }
 
+    console.log('[FILE_UPLOAD] Iniciando upload...');
     try {
-      await upload(file, uploadType);
+      const result = await upload(file, uploadType);
+      console.log('[FILE_UPLOAD] Upload concluído:', result);
       setFile(null);
       if (onSuccess) {
+        console.log('[FILE_UPLOAD] Chamando onSuccess callback...');
         setTimeout(onSuccess, 1000);
       }
     } catch (err) {
-      console.error('Upload error:', err);
+      console.error('[FILE_UPLOAD] Erro no upload:', err);
     }
   };
 

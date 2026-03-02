@@ -1,6 +1,4 @@
-import axios from 'axios';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+import apiClient from './client';
 
 export interface Marketplace {
   id: number;
@@ -27,35 +25,33 @@ export interface MarketplaceUpdate {
 
 export const marketplacesApi = {
   getAll: async (empresaId?: number): Promise<Marketplace[]> => {
-    const url = empresaId
-      ? `${API_URL}/api/v1/marketplaces/?empresa_id=${empresaId}`
-      : `${API_URL}/api/v1/marketplaces/`;
-    const response = await axios.get(url);
-    return response.data.marketplaces || [];
+    const params = empresaId != null ? { empresa_id: empresaId } : {};
+    const { data } = await apiClient.get<{ marketplaces?: Marketplace[] }>('/api/v1/marketplaces/', { params });
+    return Array.isArray(data?.marketplaces) ? data.marketplaces : [];
   },
 
   getByEmpresa: async (empresaId: number): Promise<Marketplace[]> => {
-    const response = await axios.get(`${API_URL}/api/v1/marketplaces/empresa/${empresaId}`);
-    return response.data.marketplaces || [];
+    const { data } = await apiClient.get<{ marketplaces?: Marketplace[] }>(`/api/v1/marketplaces/empresa/${empresaId}`);
+    return Array.isArray(data?.marketplaces) ? data.marketplaces : [];
   },
 
   getById: async (id: number): Promise<Marketplace> => {
-    const response = await axios.get(`${API_URL}/api/v1/marketplaces/${id}`);
-    return response.data;
+    const { data } = await apiClient.get<Marketplace>(`/api/v1/marketplaces/${id}`);
+    return data;
   },
 
   create: async (marketplace: MarketplaceCreate): Promise<Marketplace> => {
-    const response = await axios.post(`${API_URL}/api/v1/marketplaces/`, marketplace);
-    return response.data;
+    const { data } = await apiClient.post<Marketplace>('/api/v1/marketplaces/', marketplace);
+    return data;
   },
 
   update: async (id: number, marketplace: MarketplaceUpdate): Promise<Marketplace> => {
-    const response = await axios.put(`${API_URL}/api/v1/marketplaces/${id}`, marketplace);
-    return response.data;
+    const { data } = await apiClient.put<Marketplace>(`/api/v1/marketplaces/${id}`, marketplace);
+    return data;
   },
 
   delete: async (id: number): Promise<void> => {
-    await axios.delete(`${API_URL}/api/v1/marketplaces/${id}`);
+    await apiClient.delete(`/api/v1/marketplaces/${id}`);
   },
 };
 

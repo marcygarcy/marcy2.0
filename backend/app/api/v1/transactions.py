@@ -12,6 +12,8 @@ async def get_transactions(
     ciclo_inicio: Optional[str] = Query(None, description="Ciclo inicial (para intervalo)"),
     ciclo_fim: Optional[str] = Query(None, description="Ciclo final (para intervalo)"),
     tipo: Optional[str] = Query(None, description="Filtrar por tipo de transação"),
+    empresa_id: Optional[int] = Query(None, description="Filtrar por empresa"),
+    marketplace_id: Optional[int] = Query(None, description="Filtrar por marketplace"),
     limit: int = Query(10000, description="Limite de registos"),
     offset: int = Query(0, description="Offset para paginação")
 ):
@@ -86,6 +88,14 @@ async def get_transactions(
         if tipo and tipo.lower() != "todos":
             conditions.append('LOWER(Tipo) = LOWER(?)')
             params.append(tipo)
+
+        # Filtros multi-tenant
+        if empresa_id is not None:
+            conditions.append('empresa_id = ?')
+            params.append(empresa_id)
+        if marketplace_id is not None:
+            conditions.append('marketplace_id = ?')
+            params.append(marketplace_id)
         
         if conditions:
             query += " WHERE " + " AND ".join(conditions)

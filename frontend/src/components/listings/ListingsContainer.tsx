@@ -1,28 +1,37 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import React, { useState, useEffect } from 'react';
 import { TransactionsList } from './TransactionsList';
 import { OrdersList } from './OrdersList';
+import { PendentesList } from './PendentesList';
+import { SalesList } from './SalesList';
 
-export function ListingsContainer() {
-  const [activeSubTab, setActiveSubTab] = useState('transacoes');
+interface ListingsContainerProps {
+  initialTab?: string;
+  onTabChange?: (tab: string) => void;
+}
+
+export function ListingsContainer({ initialTab = 'transacoes', onTabChange }: ListingsContainerProps) {
+  const [activeSubTab, setActiveSubTab] = useState(initialTab);
+
+  useEffect(() => {
+    setActiveSubTab(initialTab);
+  }, [initialTab]);
+
+  const handleTabChange = (tab: string) => {
+    setActiveSubTab(tab);
+    if (onTabChange) {
+      onTabChange(tab);
+    }
+  };
 
   return (
-    <Tabs value={activeSubTab} onValueChange={setActiveSubTab} className="w-full">
-      <TabsList>
-        <TabsTrigger value="transacoes">📋 Listagem de Transações</TabsTrigger>
-        <TabsTrigger value="pedidos">🛒 Listagem de Pedidos Global</TabsTrigger>
-      </TabsList>
-      
-      <TabsContent value="transacoes">
-        <TransactionsList />
-      </TabsContent>
-      
-      <TabsContent value="pedidos">
-        <OrdersList />
-      </TabsContent>
-    </Tabs>
+    <div className="w-full">
+      {activeSubTab === 'transacoes' && <TransactionsList />}
+      {activeSubTab === 'pedidos' && <OrdersList />}
+      {activeSubTab === 'vendas' && <SalesList />}
+      {activeSubTab === 'pendentes' && <PendentesList />}
+    </div>
   );
 }
 

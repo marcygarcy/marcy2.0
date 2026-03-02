@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { formatCurrency } from '@/lib/utils';
 import type { CycleBreakdownItem } from '@/types/kpis';
+import { kpiApi } from '@/lib/api/kpis';
+import { useApp } from '@/context/AppContext';
 
 interface CycleBreakdownProps {
   ciclo: string | null;
@@ -9,14 +11,89 @@ interface CycleBreakdownProps {
   breakdown: CycleBreakdownItem[];
   totalNet: number;
   loading?: boolean;
+  onCicloChange?: (ciclo: string | null) => void;
 }
 
-export function CycleBreakdown({ ciclo, dataCiclo, breakdown, totalNet, loading }: CycleBreakdownProps) {
+export function CycleBreakdown({ ciclo, dataCiclo, breakdown, totalNet, loading, onCicloChange }: CycleBreakdownProps) {
+  const { empresaSelecionada, marketplaceSelecionado } = useApp();
+  const empresaId = empresaSelecionada?.id;
+  const marketplaceId = marketplaceSelecionado?.id;
+  const [availableCycles, setAvailableCycles] = useState<string[]>([]);
+  const [loadingCycles, setLoadingCycles] = useState(false);
+  const [selectedCiclo, setSelectedCiclo] = useState<string>(ciclo || '');
+
+  useEffect(() => {
+    loadAvailableCycles();
+  }, [empresaId, marketplaceId]);
+
+  useEffect(() => {
+    if (ciclo && ciclo !== selectedCiclo) {
+      setSelectedCiclo(ciclo);
+    }
+  }, [ciclo]);
+
+  const loadAvailableCycles = async () => {
+    try {
+      setLoadingCycles(true);
+      const cycles = await kpiApi.getAvailableCycles(
+        empresaId || undefined,
+        marketplaceId || undefined
+      );
+      setAvailableCycles(cycles);
+      
+      // Se não há ciclo selecionado e há ciclos disponíveis, selecionar o primeiro (último)
+      if (!selectedCiclo && cycles.length > 0 && onCicloChange) {
+        const primeiroCiclo = cycles[0];
+        setSelectedCiclo(primeiroCiclo);
+        onCicloChange(primeiroCiclo);
+      }
+      // Se já temos um ciclo mas não está na lista, selecionar o primeiro disponível
+      else if (selectedCiclo && cycles.length > 0 && !cycles.includes(selectedCiclo) && onCicloChange) {
+        const primeiroCiclo = cycles[0];
+        setSelectedCiclo(primeiroCiclo);
+        onCicloChange(primeiroCiclo);
+      }
+    } catch (error) {
+      console.error('Erro ao carregar ciclos:', error);
+    } finally {
+      setLoadingCycles(false);
+    }
+  };
+
+  const handleCicloChange = (newCiclo: string) => {
+    if (newCiclo) {
+      setSelectedCiclo(newCiclo);
+      if (onCicloChange) {
+        onCicloChange(newCiclo);
+      }
+    }
+  };
+
   if (loading) {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>📋 Resumo Detalhado do Último Ciclo</CardTitle>
+          <div className="flex flex-col gap-4">
+            <CardTitle>📋 Resumo Detalhado do Ciclo</CardTitle>
+            <div>
+              <label className="block text-sm font-medium mb-2 text-slate-300">
+                Selecionar Ciclo
+              </label>
+              <select
+                value={selectedCiclo}
+                onChange={(e) => handleCicloChange(e.target.value)}
+                className="w-full px-4 py-2 bg-slate-600 border border-slate-500 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                disabled={loadingCycles || availableCycles.length === 0}
+              >
+                <option value="">Selecione um ciclo...</option>
+                {availableCycles.map((cycle) => (
+                  <option key={cycle} value={cycle}>
+                    {cycle}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="text-center py-8 text-slate-400">A carregar...</div>
@@ -29,11 +106,34 @@ export function CycleBreakdown({ ciclo, dataCiclo, breakdown, totalNet, loading 
     return (
       <Card>
         <CardHeader>
-          <CardTitle>📋 Resumo Detalhado do Último Ciclo</CardTitle>
+          <div className="flex flex-col gap-4">
+            <CardTitle>📋 Resumo Detalhado do Ciclo</CardTitle>
+            <div>
+              <label className="block text-sm font-medium mb-2 text-slate-300">
+                Selecionar Ciclo
+              </label>
+              <select
+                value={selectedCiclo}
+                onChange={(e) => handleCicloChange(e.target.value)}
+                className="w-full px-4 py-2 bg-slate-600 border border-slate-500 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                disabled={loadingCycles || availableCycles.length === 0}
+              >
+                <option value="">Selecione um ciclo...</option>
+                {availableCycles.map((cycle) => (
+                  <option key={cycle} value={cycle}>
+                    {cycle}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="text-center py-8 text-slate-400">
-            Sem dados disponíveis. Carregue ficheiros de transações primeiro.
+            {availableCycles.length === 0 
+              ? "Sem dados disponíveis. Carregue ficheiros de transações primeiro."
+              : "Selecione um ciclo para ver o resumo detalhado."
+            }
           </div>
         </CardContent>
       </Card>
@@ -43,11 +143,33 @@ export function CycleBreakdown({ ciclo, dataCiclo, breakdown, totalNet, loading 
   return (
     <Card>
       <CardHeader>
-        <div className="flex justify-between items-center">
-          <CardTitle>📋 Resumo Detalhado - {ciclo}</CardTitle>
-          {dataCiclo && (
-            <span className="text-slate-400 text-sm">{new Date(dataCiclo).toLocaleDateString('pt-PT')}</span>
-          )}
+        <div className="flex flex-col gap-4">
+          <div className="flex justify-between items-center">
+            <CardTitle>📋 Resumo Detalhado do Ciclo</CardTitle>
+            {dataCiclo && (
+              <span className="text-slate-400 text-sm">{new Date(dataCiclo).toLocaleDateString('pt-PT')}</span>
+            )}
+          </div>
+          
+          {/* Dropdown de seleção de ciclo */}
+          <div>
+            <label className="block text-sm font-medium mb-2 text-slate-300">
+              Selecionar Ciclo
+            </label>
+            <select
+              value={selectedCiclo}
+              onChange={(e) => handleCicloChange(e.target.value)}
+              className="w-full px-4 py-2 bg-slate-600 border border-slate-500 rounded-lg text-white focus:outline-none focus:border-blue-500"
+              disabled={loading || loadingCycles || availableCycles.length === 0}
+            >
+              <option value="">Selecione um ciclo...</option>
+              {availableCycles.map((cycle) => (
+                <option key={cycle} value={cycle}>
+                  {cycle}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </CardHeader>
       <CardContent>

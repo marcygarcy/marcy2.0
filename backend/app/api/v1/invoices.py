@@ -19,6 +19,33 @@ async def get_cycles(service: InvoiceService = Depends(get_invoice_service)):
         service.close()
 
 
+@router.get("/cycles-with-files")
+async def get_cycles_with_files(service: InvoiceService = Depends(get_invoice_service)):
+    """Obtém lista de ciclos com informações sobre ficheiros carregados."""
+    try:
+        cycles = service.get_available_cycles()
+        all_invoices = service.get_all_invoices_by_cycle()
+        
+        cycles_info = []
+        for cycle in cycles:
+            invoices = all_invoices.get(cycle, [])
+            cycles_info.append({
+                "cycle": cycle,
+                "has_files": len(invoices) > 0,
+                "files": [
+                    {
+                        "nome": inv["nome_ficheiro"],
+                        "tipo": inv["tipo_documento"]
+                    }
+                    for inv in invoices
+                ] if invoices else []
+            })
+        
+        return {"cycles": cycles_info}
+    finally:
+        service.close()
+
+
 @router.post("/upload")
 async def upload_invoice(
     ciclo_pagamento: str = Form(...),

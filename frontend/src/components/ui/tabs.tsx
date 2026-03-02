@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useState, useCallback } from 'react';
 import { clsx } from 'clsx';
 
 interface TabsContextValue {
@@ -9,13 +9,24 @@ interface TabsContextValue {
 const TabsContext = createContext<TabsContextValue | undefined>(undefined);
 
 interface TabsProps {
-  value: string;
-  onValueChange: (value: string) => void;
+  value?: string;
+  onValueChange?: (value: string) => void;
+  defaultValue?: string;
   children: React.ReactNode;
   className?: string;
 }
 
-export function Tabs({ value, onValueChange, children, className }: TabsProps) {
+export function Tabs({ value: controlledValue, onValueChange: controlledOnChange, defaultValue, children, className }: TabsProps) {
+  const [internalValue, setInternalValue] = useState(defaultValue ?? '');
+  const isControlled = controlledValue !== undefined;
+  const value = isControlled ? controlledValue : internalValue;
+  const onValueChange = useCallback(
+    (v: string) => {
+      if (!isControlled) setInternalValue(v);
+      controlledOnChange?.(v);
+    },
+    [isControlled, controlledOnChange]
+  );
   return (
     <TabsContext.Provider value={{ value, onValueChange }}>
       <div className={clsx('w-full', className)}>{children}</div>
@@ -45,12 +56,13 @@ export function TabsTrigger({
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & { value: string }) {
   const context = useContext(TabsContext);
   if (!context) throw new Error('TabsTrigger must be used within Tabs');
-
+  const onValueChange = typeof context.onValueChange === 'function' ? context.onValueChange : undefined;
   const isActive = context.value === value;
 
   return (
     <button
-      onClick={() => context.onValueChange(value)}
+      type="button"
+      onClick={() => onValueChange?.(value)}
       className={clsx(
         'px-4 py-2 rounded-lg font-medium transition-all',
         {

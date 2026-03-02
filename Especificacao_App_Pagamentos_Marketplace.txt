@@ -1,0 +1,314 @@
+Especificação Técnica – App de Análise de Pagamentos de Marketplace
+Objetivo
+
+Construir uma aplicação local para carregar e analisar, de forma rápida e recorrente, os dados de pagamentos por ciclo de faturamento do marketplace, incluindo histórico de transações, documentos contabilísticos (automáticos e manuais) e transferências bancárias (TRF). A app deve normalizar os dados, calcular KPIs chave (acumulados e por último ciclo) e disponibilizar um dashboard simples, além de endpoints para integração.
+1. Âmbito e KPIs
+Fontes de dados a suportar:
+* Histórico de transações por ciclo (XLSX/CSV).
+* Documentos contabilísticos (faturas/notas automáticas e manuais) e/ou “Resumo das transações” (quando disponível).
+* Transferências bancárias (TRF) em XLSX/CSV, layout variável.
+KPIs obrigatórios (acumulado e “último ciclo”):
+* Prazos médios de pagamento (apenas “Valor do pedido”): média, mínimo, máximo.
+* Total de pedidos “Recebido”.
+* Total de produtos vendidos.
+* Reserva presa (saldo em aberto).
+* Ciclo da constituição da última reserva.
+* Total de comissões pagas (sem impostos) e Imposto sobre comissões.
+* Total de reembolsos incluindo impostos.
+* Conciliação: Net por ciclo vs TRF (+0/+7 dias) e diferença.
+2. Arquitetura proposta
+Stack: Python + DuckDB + FastAPI (API) + Pandas (ETL) + (Opcional) Streamlit/Plotly para UI.
+Racional: zero dependências externas, rapidez em ficheiros grandes, portabilidade, e separação clara entre ingestão (ETL), armazenamento e exposição de KPIs.
+3. Modelo de Dados (DuckDB)
+Tabelas principais:
+
+-- 3.1 transactions (histórico por ciclo)
+CREATE TABLE IF NOT EXISTS transactions (
+  "Ciclo Pagamento" TEXT,
+  "Data do ciclo de faturamento" TIMESTAMP,
+  "Data Criação" TIMESTAMP,
+  "Canal de vendas" TEXT,
+  Tipo TEXT,
+  Crédito DOUBLE,
+  Débito DOUBLE,
+  real DOUBLE,
+  Descrição TEXT,
+  "Nº Pedido" TEXT,
+  "Nº da fatura" TEXT,
+  "Nº da transação" TEXT,
+  "Rótulo da categoria" TEXT,
+  "SKU da oferta" TEXT,
+  Moeda TEXT
+);
+
+-- 3.2 accounting_docs (documentos contabilísticos)
+CREATE TABLE IF NOT EXISTS accounting_docs (
+  cycle_id TEXT,
+  data_emissao TIMESTAMP,
+  numero_documento TEXT,
+  tipo_documento TEXT,   -- fatura/nota_credito; compra/venda
+  direcao TEXT,          -- debito/credito
+  valor_bruto DOUBLE,
+  valor_imposto DOUBLE,
+  valor_liquido DOUBLE,
+  descricao TEXT,
+  manual_flag BOOLEAN
+);
+
+-- 3.3 cycle_summary (resumo oficial por ciclo, opcional)
+CREATE TABLE IF NOT EXISTS cycle_summary (
+  cycle_id TEXT,
+  key TEXT,              -- ex.: RESERVA_FUNDING, RESERVE_SETTLEMENT, PEDIDOS_PAGAVEIS...
+  valor DOUBLE
+);
+
+-- 3.4 bank_trf (transferências)
+CREATE TABLE IF NOT EXISTS bank_trf (
+  data DATE,
+  valor DOUBLE,
+  referencia TEXT,
+  descricao TEXT
+);
+
+4. Regras de Mapeamento (“Buckets”)
+Mapeamento do campo Tipo para buckets contabilísticos com sinal real (Crédito–Débito):
+
+itens                     <- Tipo = "Valor do pedido"
+imp_itens                 <- "Imposto sobre o valor do pedido"
+envio                     <- "Valor do envio do pedido"
+imp_envio                 <- "Imposto sobre o valor do envio do pedido"
+taxas                     <- Tipo contém "Taxa"|"Taxas"|"Taxa do vendedor"|"Taxa de assinatura"
+imp_taxas                 <- "Imposto sobre (taxas|comiss|assinatura)"
+fatura_manual             <- Tipo contém "Fatura manual"
+imp_fatura_manual         <- "Imposto sobre fatura manual"
+credito_manual            <- Tipo contém "Crédito manual" (aceita variações de acento)
+imp_credito_manual        <- "Imposto sobre crédito manual"
+refunds_itens             <- "Valor do pedido de reembolso"
+imp_refunds_itens         <- "Imposto sobre o valor do pedido de reembolso"
+outros                    <- restante
+
+5. KPIs – Definições e Queries (DuckDB SQL)
+5.1 Prazos médios (média/mín/máx) – apenas “Valor do pedido”:
+
+WITH items AS (
+  SELECT DATE_DIFF('day', "Data Criação", "Data do ciclo de faturamento") AS dias
+  FROM transactions WHERE LOWER(Tipo) = 'valor do pedido'
+)
+SELECT AVG(dias) AS prazo_medio_dias, MIN(dias) AS prazo_min_dias, MAX(dias) AS prazo_max_dias FROM items;
+
+5.2 Último ciclo (mais recente por data de ciclo):
+
+SELECT "Ciclo Pagamento"
+FROM transactions
+WHERE "Data do ciclo de faturamento" IS NOT NULL
+ORDER BY "Data do ciclo de faturamento" DESC
+LIMIT 1;
+
+5.3 Comissões (sem impostos) e Imposto sobre comissões – acumulado e último ciclo:
+
+-- Acumulado
+SELECT
+  SUM(CASE WHEN LOWER(Tipo) REGEXP '(taxa|taxas|taxa do vendedor|taxa de assinatura)' THEN Débito ELSE 0 END) AS comissoes,
+  SUM(CASE WHEN LOWER(Tipo) REGEXP 'imposto sobre (taxas|comiss|assinatura)' THEN Débito ELSE 0 END) AS imp_comissoes
+FROM transactions;
+
+-- Último ciclo
+WITH latest AS (
+  SELECT "Ciclo Pagamento" FROM transactions
+  WHERE "Data do ciclo de faturamento" IS NOT NULL
+  ORDER BY "Data do ciclo de faturamento" DESC LIMIT 1
+)
+SELECT
+  SUM(CASE WHEN LOWER(Tipo) REGEXP '(taxa|taxas|taxa do vendedor|taxa de assinatura)' THEN Débito ELSE 0 END) AS comissoes,
+  SUM(CASE WHEN LOWER(Tipo) REGEXP 'imposto sobre (taxas|comiss|assinatura)' THEN Débito ELSE 0 END) AS imp_comissoes
+FROM transactions
+WHERE "Ciclo Pagamento" = (SELECT "Ciclo Pagamento" FROM latest);
+
+5.4 Reembolsos (incluindo impostos) – acumulado e último ciclo:
+
+-- Acumulado
+SELECT
+  SUM(CASE WHEN LOWER(Tipo) LIKE 'valor do pedido de reembolso%' THEN Crédito ELSE 0 END)
++ SUM(CASE WHEN LOWER(Tipo) LIKE 'imposto sobre o valor do pedido de reembolso%' THEN Crédito ELSE 0 END)
+AS reembolsos_incl_imp
+FROM transactions;
+
+-- Último ciclo
+WITH latest AS (
+  SELECT "Ciclo Pagamento" FROM transactions
+  WHERE "Data do ciclo de faturamento" IS NOT NULL
+  ORDER BY "Data do ciclo de faturamento" DESC LIMIT 1
+)
+SELECT
+  SUM(CASE WHEN LOWER(Tipo) LIKE 'valor do pedido de reembolso%' THEN Crédito ELSE 0 END)
++ SUM(CASE WHEN LOWER(Tipo) LIKE 'imposto sobre o valor do pedido de reembolso%' THEN Crédito ELSE 0 END)
+AS reembolsos_incl_imp
+FROM transactions
+WHERE "Ciclo Pagamento" = (SELECT "Ciclo Pagamento" FROM latest);
+
+5.5 Reserva presa (saldo) e ciclo da última constituição (sem resumo oficial):
+
+-- Saldo estimado via manuais + keywords
+WITH res AS (
+  SELECT SUM(real) AS saldo
+  FROM transactions
+  WHERE (LOWER(Tipo) LIKE '%fatura manual%' OR LOWER(Tipo) LIKE '%cr%dito manual%')
+    AND LOWER(Descrição) REGEXP '(reserv|reten|hold|escrow)'
+)
+SELECT COALESCE(saldo,0) AS reserva_saldo FROM res;
+
+-- Último ciclo com constituição (valor negativo)
+SELECT "Ciclo Pagamento"
+FROM (
+  SELECT "Ciclo Pagamento", SUM(real) AS v
+  FROM transactions
+  WHERE (LOWER(Tipo) LIKE '%fatura manual%' OR LOWER(Tipo) LIKE '%cr%dito manual%')
+    AND LOWER(Descrição) REGEXP '(reserv|reten|hold|escrow)'
+  GROUP BY 1
+)
+WHERE v < 0
+ORDER BY "Ciclo Pagamento" DESC
+LIMIT 1;
+
+5.6 Conciliação Net por ciclo vs TRF (+0/+7):
+
+WITH cycle AS (
+  SELECT "Ciclo Pagamento", MAX("Data do ciclo de faturamento") AS end_dt,
+         SUM(Crédito) - SUM(Débito) AS net
+  FROM transactions
+  GROUP BY 1
+),
+trf AS (
+  SELECT data, SUM(valor) AS v FROM bank_trf GROUP BY 1
+)
+SELECT
+  "Ciclo Pagamento",
+  CAST(end_dt AS DATE) AS cycle_end,
+  net,
+  (SELECT SUM(v) FROM trf WHERE data BETWEEN CAST(end_dt AS DATE) AND (CAST(end_dt AS DATE) + INTERVAL 7 DAY)) AS trf_0_7,
+  ((SELECT SUM(v) FROM trf WHERE data BETWEEN CAST(end_dt AS DATE) AND (CAST(end_dt AS DATE) + INTERVAL 7 DAY)) - net) AS diff
+FROM cycle
+ORDER BY cycle_end;
+
+6. ETL – Normalização e Ingestão
+Funções base para normalizar cabeçalhos, converter datas, numerificar e calcular coluna real (Crédito–Débito).
+
+# etl_ingest.py (excerto)
+REN = {
+  "CrÃ©dito":"Crédito","DÃ©bito":"Débito","DescriÃ§Ã£o":"Descrição",
+  "NÃºmero da fatura":"Nº da fatura","NÃºmero da transaÃ§Ã£o":"Nº da transação",
+  "RÃ³tulo da categoria":"Rótulo da categoria"
+}
+
+def load_transactions(df):
+    df = df.rename(columns={c: REN.get(c,c) for c in df.columns})
+    for c in ["Crédito","Débito","Valor"]:
+        if c in df: df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0.0)
+    for c in ["Data Criação","Data Recebida","Data Transação","Data do ciclo de faturamento"]:
+        if c in df: df[c] = pd.to_datetime(df[c], errors="coerce", dayfirst=True)
+    if "Crédito" in df and "Débito" in df:
+        df["real"] = df["Crédito"] - df["Débito"]
+    return df
+
+7. API – Uploads e KPIs (FastAPI)
+Endpoints mínimos:
+
+POST /upload/transactions  -> recebe XLSX/CSV, normaliza e insere em transactions
+POST /upload/trf           -> recebe XLSX/CSV, mapeia data/valor e insere em bank_trf
+GET  /kpis/prazos          -> média/mín/máx (itens)
+GET  /kpis/comissoes_acum  -> comissões e imposto (acumulado)
+GET  /kpis/comissoes_ult   -> comissões e imposto (último ciclo)
+GET  /kpis/reembolsos_acum -> reembolsos incl. imposto (acumulado)
+GET  /kpis/reembolsos_ult  -> reembolsos incl. imposto (último ciclo)
+GET  /kpis/reserva_saldo_est          -> saldo de reserva (estimado)
+GET  /kpis/reserva_ult_ciclo_funding  -> último ciclo de constituição
+GET  /kpis/net_vs_trf      -> conciliação por ciclo
+
+8. Dashboard (Opcional) – Streamlit
+Dashboard leve para visualização imediata (KPIs + conciliação). Pode ser substituído por frontend React/Next caso necessário.
+9. Estrutura de Repositório
+
+pix_app/
+?? app.py                    # Streamlit (opcional)
+?? requirements.txt          # dependências
+?? README.md
+?? assets/
+?  ?? theme.css
+?? config/
+?  ?? settings.yaml
+?  ?? mapping_patterns.yaml
+?? data/
+?  ?? warehouse.duckdb       # criado automaticamente
+?? etl/
+?  ?? schemas.py
+?  ?? ingest.py
+?  ?? transform.py
+?  ?? classify.py
+?  ?? reconcile.py
+?? pages/
+   ?? 1_??_Upload_e_Ingestão.py
+   ?? 3_??_Reconciliação_por_Ciclo.py
+   ?? 4_???_Comissões_e_TakeRate.py
+   ?? 5_??_Penalizações_e_Manuais.py
+   ?? 6_??_Reservas.py
+   ?? 7_??_Conciliação_TRF.py
+   ?? 8_??_Prazos_e_>30_dias.py
+
+10. Ficheiros de Configuração
+10.1 settings.yaml
+
+app_name: "Pagamentos Marketplace"
+locale: "pt-PT"
+concil:
+  trf_window_days: 7
+reservas:
+  keywords: ["reserv", "reten", "hold", "escrow"]
+penalizacoes:
+  keywords: ["penal", "multa", "ajuste", "fee", "retenc", "reserva", "hold", "escrow"]
+
+10.2 mapping_patterns.yaml
+
+bucket_map:
+  Valor do pedido: itens
+  Imposto sobre o valor do pedido: imp_itens
+  Valor do envio do pedido: envio
+  Imposto sobre o valor do envio do pedido: imp_envio
+  Taxa: taxas
+  Taxas: taxas
+  Taxa do vendedor: taxas
+  Taxa de assinatura: taxas
+  Imposto sobre taxas: imp_taxas
+  Imposto sobre a assinatura: imp_taxas
+  Imposto sobre comiss: imp_taxas
+  Fatura manual: fatura_manual
+  Imposto sobre fatura manual: imp_fatura_manual
+  Crédito manual: credito_manual
+  Imposto sobre crédito manual: imp_credito_manual
+  Valor do pedido de reembolso: refunds_itens
+  Imposto sobre o valor do pedido de reembolso: imp_refunds_itens
+unknown_bucket: outros
+
+regex:
+  credito_manual: "(?i)cr.?dito manual"
+  imposto_credito_manual: "(?i)imposto sobre cr.?dito manual"
+  fatura_manual: "(?i)fatura manual"
+  imposto_fatura_manual: "(?i)imposto sobre fatura manual"
+  taxas_generico: "(?i)taxa|taxas"
+  imposto_taxas: "(?i)imposto sobre (taxas|comiss|assinatura)"
+  refunds_itens: "(?i)valor do pedido de reembolso"
+  imp_refunds_itens: "(?i)imposto sobre o valor do pedido de reembolso"
+
+11. Execução e Entrega
+Requisitos mínimos: Python 3.10+, DuckDB 1.0+, FastAPI, Pandas, OpenPyXL.
+
+# API
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
+
+# Dashboard (opcional)
+streamlit run app.py
+
+Notas finais:
+* - Se o marketplace disponibilizar o “Resumo das transações” por ciclo, importar para a tabela cycle_summary e substituir a estimativa de reservas por RESERVA_FUNDING/RESERVE_SETTLEMENT.
+* - Para relatório de desvios contratuais, fornecer tabela de acordos (categoria/SKU/canal ? % comissão).
+* - Todos os cálculos usam sinal real (Crédito–Débito). Reconciliação por ciclo deve dar diferença ? 0, garantindo consistência.

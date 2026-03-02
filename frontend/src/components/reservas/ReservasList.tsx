@@ -5,6 +5,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { kpiApi } from '@/lib/api/kpis';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { Lock } from 'lucide-react';
+import { useApp } from '@/context/AppContext';
 
 interface Reserva {
   numero_transacao: string;
@@ -20,18 +21,19 @@ interface Reserva {
 }
 
 export function ReservasList() {
+  const { empresaSelecionada, marketplaceSelecionado } = useApp();
   const [reservas, setReservas] = useState<Reserva[]>([]);
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
 
   useEffect(() => {
     loadReservas();
-  }, []);
+  }, [empresaSelecionada?.id, marketplaceSelecionado?.id]);
 
   const loadReservas = async () => {
     try {
       setLoading(true);
-      const response = await kpiApi.getReservasList();
+      const response = await kpiApi.getReservasList(empresaSelecionada?.id, marketplaceSelecionado?.id);
       setReservas(response.reservas);
       setTotal(response.count);
     } catch (error) {

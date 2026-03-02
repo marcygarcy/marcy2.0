@@ -14,12 +14,36 @@ class Order(BaseModel):
     id: int
     numero_pedido: str
     data_criacao: Optional[str] = None
+    quantidade: Optional[float] = None
+    detalhes: Optional[str] = None
+    status: Optional[str] = None
+    valor: Optional[float] = None
+    canal_vendas: Optional[str] = None
+    sku_oferta: Optional[str] = None
+    marca: Optional[str] = None
+    etiqueta_categoria: Optional[str] = None
+    preco_unitario: Optional[float] = None
+    valor_total_sem_impostos: Optional[float] = None
+    valor_total_com_iva: Optional[float] = None
+    comissao_sem_impostos: Optional[float] = None
+    valor_comissao_com_impostos: Optional[float] = None
+    valor_transferido_loja: Optional[float] = None
+    pais_faturamento: Optional[str] = None
+    imposto_produto_tva_fr_20: Optional[float] = None
+    imposto_envio_tva_fr_20: Optional[float] = None
+    imposto_produto_tva_es_21: Optional[float] = None
+    imposto_envio_tva_es_21: Optional[float] = None
+    imposto_produto_tva_it_22: Optional[float] = None
+    imposto_envio_tva_it_22: Optional[float] = None
+    imposto_produto_tva_zero: Optional[float] = None
+    imposto_envio_tva_zero: Optional[float] = None
+    total_impostos_pedido: Optional[float] = None
+    total_impostos_envio: Optional[float] = None
+    # Campos antigos (compatibilidade)
     data_pagamento: Optional[str] = None
     ciclo_pagamento: Optional[str] = None
     valor_total: Optional[float] = None
     quantidade_itens: Optional[int] = None
-    status: Optional[str] = None
-    canal_vendas: Optional[str] = None
     empresa_id: Optional[int] = None
     marketplace_id: Optional[int] = None
     data_upload: Optional[str] = None
@@ -67,8 +91,17 @@ async def get_orders(
         # Buscar orders
         query = f"""
             SELECT 
-                id, numero_pedido, data_criacao, data_pagamento, ciclo_pagamento,
-                valor_total, quantidade_itens, status, canal_vendas, empresa_id, marketplace_id, data_upload
+                id, numero_pedido, data_criacao, quantidade, detalhes, status, valor,
+                canal_vendas, sku_oferta, marca, etiqueta_categoria, preco_unitario,
+                valor_total_sem_impostos, valor_total_com_iva, comissao_sem_impostos,
+                valor_comissao_com_impostos, valor_transferido_loja, pais_faturamento,
+                imposto_produto_tva_fr_20, imposto_envio_tva_fr_20,
+                imposto_produto_tva_es_21, imposto_envio_tva_es_21,
+                imposto_produto_tva_it_22, imposto_envio_tva_it_22,
+                imposto_produto_tva_zero, imposto_envio_tva_zero,
+                total_impostos_pedido, total_impostos_envio,
+                data_pagamento, ciclo_pagamento, valor_total, quantidade_itens,
+                empresa_id, marketplace_id, data_upload
             FROM orders
             {where_clause}
             ORDER BY data_criacao DESC NULLS LAST, id DESC
@@ -80,19 +113,44 @@ async def get_orders(
         
         orders = []
         for row in results:
+            # Garantir que numero_pedido nunca é vazio (usar ID como fallback)
+            numero_pedido = row[1] if row[1] and str(row[1]).strip() else f"ORD-{row[0]}"
             orders.append(Order(
                 id=row[0],
-                numero_pedido=row[1] or "",
+                numero_pedido=str(numero_pedido).strip() if numero_pedido else f"ORD-{row[0]}",
                 data_criacao=str(row[2]) if row[2] else None,
-                data_pagamento=str(row[3]) if row[3] else None,
-                ciclo_pagamento=row[4] if row[4] else None,
-                valor_total=float(row[5]) if row[5] is not None else None,
-                quantidade_itens=int(row[6]) if row[6] is not None else None,
-                status=row[7] if row[7] else None,
-                canal_vendas=row[8] if row[8] else None,
-                empresa_id=row[9] if row[9] is not None else None,
-                marketplace_id=row[10] if row[10] is not None else None,
-                data_upload=str(row[11]) if row[11] else None
+                quantidade=float(row[3]) if row[3] is not None else None,
+                detalhes=row[4] if row[4] else None,
+                status=row[5] if row[5] else None,
+                valor=float(row[6]) if row[6] is not None else None,
+                canal_vendas=row[7] if row[7] else None,
+                sku_oferta=row[8] if row[8] else None,
+                marca=row[9] if row[9] else None,
+                etiqueta_categoria=row[10] if row[10] else None,
+                preco_unitario=float(row[11]) if row[11] is not None else None,
+                valor_total_sem_impostos=float(row[12]) if row[12] is not None else None,
+                valor_total_com_iva=float(row[13]) if row[13] is not None else None,
+                comissao_sem_impostos=float(row[14]) if row[14] is not None else None,
+                valor_comissao_com_impostos=float(row[15]) if row[15] is not None else None,
+                valor_transferido_loja=float(row[16]) if row[16] is not None else None,
+                pais_faturamento=row[17] if row[17] else None,
+                imposto_produto_tva_fr_20=float(row[18]) if row[18] is not None else None,
+                imposto_envio_tva_fr_20=float(row[19]) if row[19] is not None else None,
+                imposto_produto_tva_es_21=float(row[20]) if row[20] is not None else None,
+                imposto_envio_tva_es_21=float(row[21]) if row[21] is not None else None,
+                imposto_produto_tva_it_22=float(row[22]) if row[22] is not None else None,
+                imposto_envio_tva_it_22=float(row[23]) if row[23] is not None else None,
+                imposto_produto_tva_zero=float(row[24]) if row[24] is not None else None,
+                imposto_envio_tva_zero=float(row[25]) if row[25] is not None else None,
+                total_impostos_pedido=float(row[26]) if row[26] is not None else None,
+                total_impostos_envio=float(row[27]) if row[27] is not None else None,
+                data_pagamento=str(row[28]) if row[28] else None,
+                ciclo_pagamento=row[29] if row[29] else None,
+                valor_total=float(row[30]) if row[30] is not None else None,
+                quantidade_itens=int(row[31]) if row[31] is not None else None,
+                empresa_id=row[32] if row[32] is not None else None,
+                marketplace_id=row[33] if row[33] is not None else None,
+                data_upload=str(row[34]) if row[34] else None
             ))
         
         return OrdersResponse(

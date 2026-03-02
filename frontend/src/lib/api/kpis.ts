@@ -42,14 +42,35 @@ export const kpiApi = {
     return response.data;
   },
 
-  getReconciliation: async (): Promise<ReconciliationResponse> => {
-    const response = await apiClient.get<ReconciliationResponse>('/api/v1/kpis/reconciliation');
+  getReconciliation: async (empresaId?: number, marketplaceId?: number): Promise<ReconciliationResponse> => {
+    const params = new URLSearchParams();
+    if (empresaId !== undefined) params.append('empresa_id', empresaId.toString());
+    if (marketplaceId !== undefined) params.append('marketplace_id', marketplaceId.toString());
+    const queryString = params.toString();
+    const url = `/api/v1/kpis/reconciliation${queryString ? `?${queryString}` : ''}`;
+    const response = await apiClient.get<ReconciliationResponse>(url);
     return response.data;
   },
 
-  getUltimoCicloDetalhes: async (): Promise<CycleBreakdownResponse> => {
-    const response = await apiClient.get<CycleBreakdownResponse>('/api/v1/kpis/ultimo-ciclo/detalhes');
+  getUltimoCicloDetalhes: async (ciclo?: string, empresaId?: number, marketplaceId?: number): Promise<CycleBreakdownResponse> => {
+    const params = new URLSearchParams();
+    if (ciclo) params.append('ciclo', ciclo);
+    if (empresaId !== undefined) params.append('empresa_id', empresaId.toString());
+    if (marketplaceId !== undefined) params.append('marketplace_id', marketplaceId.toString());
+    const queryString = params.toString();
+    const url = `/api/v1/kpis/ultimo-ciclo/detalhes${queryString ? `?${queryString}` : ''}`;
+    const response = await apiClient.get<CycleBreakdownResponse>(url);
     return response.data;
+  },
+
+  getAvailableCycles: async (empresaId?: number, marketplaceId?: number): Promise<string[]> => {
+    const params = new URLSearchParams();
+    if (empresaId !== undefined) params.append('empresa_id', empresaId.toString());
+    if (marketplaceId !== undefined) params.append('marketplace_id', marketplaceId.toString());
+    const queryString = params.toString();
+    const url = `/api/v1/kpis/cycles${queryString ? `?${queryString}` : ''}`;
+    const response = await apiClient.get<{ cycles: string[] }>(url);
+    return response.data.cycles;
   },
 
   getVendasBrutasPorCiclo: async (empresaId?: number, marketplaceId?: number): Promise<{ cycles: Array<{ ciclo: string; data_ciclo: string; vendas_brutas: number }> }> => {
@@ -59,6 +80,16 @@ export const kpiApi = {
     const queryString = params.toString();
     const url = `/api/v1/kpis/vendas-brutas-por-ciclo${queryString ? `?${queryString}` : ''}`;
     const response = await apiClient.get<{ cycles: Array<{ ciclo: string; data_ciclo: string; vendas_brutas: number }> }>(url);
+    return response.data;
+  },
+
+  getComissoesPorCiclo: async (empresaId?: number, marketplaceId?: number): Promise<{ cycles: Array<{ ciclo: string; data_ciclo: string; comissoes: number; imposto: number }> }> => {
+    const params = new URLSearchParams();
+    if (empresaId !== undefined) params.append('empresa_id', empresaId.toString());
+    if (marketplaceId !== undefined) params.append('marketplace_id', marketplaceId.toString());
+    const queryString = params.toString();
+    const url = `/api/v1/kpis/comissoes-por-ciclo${queryString ? `?${queryString}` : ''}`;
+    const response = await apiClient.get<{ cycles: Array<{ ciclo: string; data_ciclo: string; comissoes: number; imposto: number }> }>(url);
     return response.data;
   },
 
@@ -78,7 +109,7 @@ export const kpiApi = {
     return response.data;
   },
 
-  getReservasList: async (): Promise<{
+  getReservasList: async (empresaId?: number, marketplaceId?: number): Promise<{
     reservas: Array<{
       numero_transacao: string;
       data_criacao: string | null;
@@ -93,6 +124,11 @@ export const kpiApi = {
     }>;
     count: number;
   }> => {
+    const params = new URLSearchParams();
+    if (empresaId !== undefined) params.append('empresa_id', empresaId.toString());
+    if (marketplaceId !== undefined) params.append('marketplace_id', marketplaceId.toString());
+    const queryString = params.toString();
+    const url = `/api/v1/kpis/reservas${queryString ? `?${queryString}` : ''}`;
     const response = await apiClient.get<{
       reservas: Array<{
         numero_transacao: string;
@@ -107,7 +143,7 @@ export const kpiApi = {
         debito: number;
       }>;
       count: number;
-    }>('/api/v1/kpis/reservas');
+    }>(url);
     return response.data;
   },
 

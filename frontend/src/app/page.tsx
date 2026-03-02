@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Header } from '@/components/layout/Header';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -11,9 +11,25 @@ import { CycleBreakdown } from '@/components/dashboard/CycleBreakdown';
 import { FileUpload } from '@/components/upload/FileUpload';
 import { InvoiceManager } from '@/components/invoices/InvoiceManager';
 import { ListingsContainer } from '@/components/listings/ListingsContainer';
+import { SalesList } from '@/components/listings/SalesList';
+import { ComprasView } from '@/components/compras/ComprasView';
+import { BancosView } from '@/components/bank/BancosView';
+import { SupplierMasterView } from '@/components/master/SupplierMasterView';
+import { EmpresasMasterView } from '@/components/master/EmpresasMasterView';
+import { MarketplacesMasterView } from '@/components/master/MarketplacesMasterView';
+import { EscritoriosMasterView } from '@/components/master/EscritoriosMasterView';
+import { TaxMatrixView } from '@/components/master/TaxMatrixView';
+import { SkuBridgeView } from '@/components/master/SkuBridgeView';
+import { AutomationStatusPage } from '@/components/automation/AutomationStatusPage';
+import { FinanceGlobalView } from '@/components/finance/FinanceGlobalView';
+import { OfficeLogisticsView } from '@/components/logistics/OfficeLogisticsView';
+import { BillingView } from '@/components/billing/BillingView';
+import { RMAView } from '@/components/rma/RMAView';
+import { OfficeStockView } from '@/components/office/OfficeStockView';
 import { BankStatement } from '@/components/bank/BankStatement';
 import { SalesChart } from '@/components/dashboard/SalesChart';
 import { TopProductsCard } from '@/components/dashboard/TopProductsCard';
+import { CommissionsChart } from '@/components/dashboard/CommissionsChart';
 import { ReservasList } from '@/components/reservas/ReservasList';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { KPICard } from '@/components/dashboard/KPICard';
@@ -21,17 +37,57 @@ import { useKPIs } from '@/lib/hooks/useKPIs';
 import { useReconciliation } from '@/lib/hooks/useReconciliation';
 import { useCycleBreakdown } from '@/lib/hooks/useCycleBreakdown';
 import { formatCurrency } from '@/lib/utils';
-import { TrendingUp, Upload, DollarSign, AlertCircle, Lock, Clock } from 'lucide-react';
+import { TrendingUp, Upload, DollarSign, AlertCircle, Lock, Clock, ChevronDown, AlertTriangle } from 'lucide-react';
+import { Dropdown } from '@/components/ui/dropdown';
+import { useApp } from '@/context/AppContext';
+import { rmaApi, type RmaAlert } from '@/lib/api/rma';
+
+function CycleBreakdownWrapper() {
+  const [selectedCiclo, setSelectedCiclo] = useState<string | null>(null);
+  const { data: cycleBreakdown, loading: breakdownLoading } = useCycleBreakdown(selectedCiclo);
+
+  return (
+    <CycleBreakdown
+      ciclo={cycleBreakdown?.ciclo || null}
+      dataCiclo={cycleBreakdown?.data_ciclo || null}
+      breakdown={cycleBreakdown?.breakdown || []}
+      totalNet={cycleBreakdown?.total_net || 0}
+      loading={breakdownLoading}
+      onCicloChange={setSelectedCiclo}
+    />
+  );
+}
 
 export default function Home() {
+  const { moduloSelecionado } = useApp();
   const [activeTab, setActiveTab] = useState('kpis');
+  const [activeListingType, setActiveListingType] = useState('transacoes');
+  const [rmaAlerts, setRmaAlerts] = useState<RmaAlert[]>([]);
   const { kpis, loading: kpisLoading, error: kpisError, refresh: refreshKPIs } = useKPIs();
   const { cycles, loading: reconLoading } = useReconciliation();
   const { data: cycleBreakdown, loading: breakdownLoading, refresh: refreshBreakdown } = useCycleBreakdown();
 
+  useEffect(() => {
+    if (activeTab === 'kpis') {
+      rmaApi.getAlerts({ days_without_credit_note: 7 }).then(setRmaAlerts).catch(() => setRmaAlerts([]));
+    }
+  }, [activeTab]);
+
   const handleUploadSuccess = () => {
     refreshKPIs();
     refreshBreakdown();
+  };
+
+  const listingItems = [
+    { value: 'transacoes', label: 'Listagem de Transações', icon: '📋' },
+    { value: 'pedidos', label: 'Listagem de Pedidos Global', icon: '🛒' },
+    { value: 'vendas', label: 'Vendas e Margem (Dropshipping)', icon: '📈' },
+    { value: 'pendentes', label: 'Listagem de Pendentes', icon: '⏳' },
+  ];
+
+  const handleListingSelect = (value: string) => {
+    setActiveListingType(value);
+    setActiveTab('listagens');
   };
 
   if (kpisError) {
@@ -44,18 +100,88 @@ export default function Home() {
     );
   }
 
+  const isModuloVendas = moduloSelecionado?.id === 'vendas-margem';
+  const isModuloCompras = moduloSelecionado?.id === 'compras';
+  const isModuloBancos = moduloSelecionado?.id === 'bancos';
+  const isDadosMestresFornecedores = moduloSelecionado?.id === 'dados-mestres-fornecedores' || moduloSelecionado?.id === 'dados-mestres';
+  const isDadosMestresEmpresas = moduloSelecionado?.id === 'dados-mestres-empresas';
+  const isDadosMestresMarketplaces = moduloSelecionado?.id === 'dados-mestres-marketplaces';
+  const isDadosMestresEscritorios = moduloSelecionado?.id === 'dados-mestres-escritorios';
+  const isDadosMestresIva = moduloSelecionado?.id === 'dados-mestres-iva';
+  const isDadosMestresSkus = moduloSelecionado?.id === 'dados-mestres-skus';
+  const isModuloAutomation = moduloSelecionado?.id === 'automation';
+  const isModuloFinancas = moduloSelecionado?.id === 'financas';
+  const isModuloLogistics = moduloSelecionado?.id === 'logistics';
+  const isModuloRMA = moduloSelecionado?.id === 'rma';
+  const isModuloBilling = moduloSelecionado?.id === 'billing';
+  const isModuloOfficeStock = moduloSelecionado?.id === 'office-stock';
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white flex">
       <Sidebar />
       <div className="flex-1 p-8 overflow-y-auto">
         <Header />
 
+        {isModuloVendas ? (
+          <SalesList />
+        ) : isModuloCompras ? (
+          <ComprasView />
+        ) : isModuloBancos ? (
+          <BancosView />
+        ) : isDadosMestresFornecedores ? (
+          <SupplierMasterView />
+        ) : isDadosMestresEmpresas ? (
+          <EmpresasMasterView />
+        ) : isDadosMestresMarketplaces ? (
+          <MarketplacesMasterView />
+        ) : isDadosMestresEscritorios ? (
+          <EscritoriosMasterView />
+        ) : isDadosMestresIva ? (
+          <TaxMatrixView />
+        ) : isDadosMestresSkus ? (
+          <SkuBridgeView />
+        ) : isModuloAutomation ? (
+          <AutomationStatusPage />
+        ) : isModuloFinancas ? (
+          <FinanceGlobalView />
+        ) : isModuloLogistics ? (
+          <OfficeLogisticsView />
+        ) : isModuloRMA ? (
+          <RMAView />
+        ) : isModuloBilling ? (
+          <BillingView />
+        ) : isModuloOfficeStock ? (
+          <OfficeStockView />
+        ) : (
         <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="kpis">📊 KPIs</TabsTrigger>
           <TabsTrigger value="upload">📥 Upload</TabsTrigger>
           <TabsTrigger value="faturas">📄 Faturas</TabsTrigger>
-          <TabsTrigger value="listagens">📋 Listagens</TabsTrigger>
+          <div className="relative inline-block">
+            <Dropdown
+              trigger={
+                <button
+                  onClick={() => {
+                    if (activeTab !== 'listagens') {
+                      setActiveTab('listagens');
+                    }
+                  }}
+                  className={`px-4 py-2 rounded-lg font-medium transition-all flex items-center gap-2 ${
+                    activeTab === 'listagens'
+                      ? 'bg-blue-600 text-white shadow-lg'
+                      : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                  }`}
+                >
+                  <span>📋 Listagens</span>
+                  <ChevronDown className="w-4 h-4" />
+                </button>
+              }
+              items={listingItems}
+              onSelect={handleListingSelect}
+              selectedValue={activeListingType}
+            />
+          </div>
           <TabsTrigger value="bancos">🏦 Bancos</TabsTrigger>
           <TabsTrigger value="resumo">📋 Resumo Último Ciclo</TabsTrigger>
           <TabsTrigger value="conciliacao">🔄 Conciliação</TabsTrigger>
@@ -66,6 +192,25 @@ export default function Home() {
 
         {/* KPIs Tab */}
         <TabsContent value="kpis">
+          {rmaAlerts.length > 0 && (
+            <Card className="mb-6 border-amber-500/50 bg-amber-950/20">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-amber-400 text-base">
+                  <AlertTriangle className="w-5 h-5" />
+                  Reembolsos pendentes de Nota de Crédito (RMA)
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {rmaAlerts.map((a) => (
+                  <div key={a.id} className="flex items-center justify-between py-2 px-3 rounded bg-slate-800/60 text-sm">
+                    <span className="text-slate-200">{a.message}</span>
+                    <span className="text-amber-400 font-medium">{formatCurrency(a.refund_customer_value)}</span>
+                  </div>
+                ))}
+                <p className="text-xs text-slate-500 mt-2">Reembolso ao cliente há mais de 7 dias sem Nota de Crédito do fornecedor. Risco de perda financeira.</p>
+              </CardContent>
+            </Card>
+          )}
           {kpisLoading ? (
             <div className="text-center py-12 text-slate-400">A carregar KPIs...</div>
           ) : (
@@ -198,7 +343,7 @@ export default function Home() {
 
         {/* Listagens Tab */}
         <TabsContent value="listagens">
-          <ListingsContainer />
+          <ListingsContainer initialTab={activeListingType} onTabChange={setActiveListingType} />
         </TabsContent>
 
         {/* Bancos Tab */}
@@ -208,13 +353,7 @@ export default function Home() {
 
         {/* Resumo Último Ciclo Tab */}
         <TabsContent value="resumo">
-          <CycleBreakdown
-            ciclo={cycleBreakdown?.ciclo || null}
-            dataCiclo={cycleBreakdown?.data_ciclo || null}
-            breakdown={cycleBreakdown?.breakdown || []}
-            totalNet={cycleBreakdown?.total_net || 0}
-            loading={breakdownLoading}
-          />
+          <CycleBreakdownWrapper />
         </TabsContent>
 
         {/* Conciliação Tab */}
@@ -224,16 +363,7 @@ export default function Home() {
 
         {/* Comissões Tab */}
         <TabsContent value="comissoes">
-          <Card>
-            <CardHeader>
-              <CardTitle>Comissões por Ciclo</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-slate-400 text-center py-8">
-                Gráfico de comissões por ciclo será exibido aqui
-              </div>
-            </CardContent>
-          </Card>
+          <CommissionsChart />
         </TabsContent>
 
         {/* Reservas Tab */}
@@ -272,41 +402,42 @@ export default function Home() {
 
         {/* Prazos Tab */}
         <TabsContent value="prazos">
-          <Card>
-            <CardHeader>
-              <CardTitle>⏱️ Análise de Prazos</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {kpis && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="bg-slate-600 p-6 rounded-lg text-center">
-                    <p className="text-slate-400 text-sm mb-2">Prazo Médio</p>
-                    <p className="text-4xl font-bold text-blue-400">
-                      {kpis.prazos.prazo_medio_dias.toFixed(1)}
-                    </p>
-                    <p className="text-slate-400 text-sm mt-2">dias</p>
-                  </div>
-                  <div className="bg-slate-600 p-6 rounded-lg text-center">
-                    <p className="text-slate-400 text-sm mb-2">Prazo Mínimo</p>
-                    <p className="text-4xl font-bold text-green-400">
-                      {kpis.prazos.prazo_min_dias}
-                    </p>
-                    <p className="text-slate-400 text-sm mt-2">dias</p>
-                  </div>
-                  <div className="bg-slate-600 p-6 rounded-lg text-center">
-                    <p className="text-slate-400 text-sm mb-2">Prazo Máximo</p>
-                    <p className="text-4xl font-bold text-red-400">
-                      {kpis.prazos.prazo_max_dias}
-                    </p>
-                    <p className="text-slate-400 text-sm mt-2">dias</p>
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+              <Card>
+                <CardHeader>
+                  <CardTitle>⏱️ Análise de Prazos de Recebimento</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {kpis && (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <div className="bg-slate-600 p-6 rounded-lg text-center">
+                        <p className="text-slate-400 text-sm mb-2">Prazo Médio</p>
+                        <p className="text-4xl font-bold text-blue-400">
+                          {kpis.prazos.prazo_medio_dias.toFixed(1)}
+                        </p>
+                        <p className="text-slate-400 text-sm mt-2">dias</p>
+                      </div>
+                      <div className="bg-slate-600 p-6 rounded-lg text-center">
+                        <p className="text-slate-400 text-sm mb-2">Prazo Mínimo</p>
+                        <p className="text-4xl font-bold text-green-400">
+                          {kpis.prazos.prazo_min_dias}
+                        </p>
+                        <p className="text-slate-400 text-sm mt-2">dias</p>
+                      </div>
+                      <div className="bg-slate-600 p-6 rounded-lg text-center">
+                        <p className="text-slate-400 text-sm mb-2">Prazo Máximo</p>
+                        <p className="text-4xl font-bold text-red-400">
+                          {kpis.prazos.prazo_max_dias}
+                        </p>
+                        <p className="text-slate-400 text-sm mt-2">dias</p>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
         </TabsContent>
       </Tabs>
-      </div>
+        )}
+    </div>
     </div>
   );
 }

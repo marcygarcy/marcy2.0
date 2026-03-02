@@ -16,6 +16,13 @@ class EmpresaCreate(BaseModel):
     morada: Optional[str] = None
     email: Optional[str] = None
     telefone: Optional[str] = None
+    pais: Optional[str] = None
+    designacao_social: Optional[str] = None
+    morada_fiscal: Optional[str] = None
+    email_financeiro: Optional[str] = None
+    logotipo_url: Optional[str] = None
+    iban: Optional[str] = None
+    moeda_base: Optional[str] = None
 
 
 class EmpresaUpdate(BaseModel):
@@ -27,6 +34,13 @@ class EmpresaUpdate(BaseModel):
     email: Optional[str] = None
     telefone: Optional[str] = None
     ativo: Optional[bool] = None
+    pais: Optional[str] = None
+    designacao_social: Optional[str] = None
+    morada_fiscal: Optional[str] = None
+    email_financeiro: Optional[str] = None
+    logotipo_url: Optional[str] = None
+    iban: Optional[str] = None
+    moeda_base: Optional[str] = None
 
 
 @router.get("/")
@@ -81,7 +95,14 @@ async def create_empresa(
             nif=empresa.nif,
             morada=empresa.morada,
             email=empresa.email,
-            telefone=empresa.telefone
+            telefone=empresa.telefone,
+            pais=empresa.pais,
+            designacao_social=empresa.designacao_social,
+            morada_fiscal=empresa.morada_fiscal,
+            email_financeiro=empresa.email_financeiro,
+            logotipo_url=empresa.logotipo_url,
+            iban=empresa.iban,
+            moeda_base=empresa.moeda_base,
         )
         return result
     except Exception as e:
@@ -101,16 +122,8 @@ async def update_empresa(
 ):
     """Atualiza uma empresa existente."""
     try:
-        result = service.update_empresa(
-            empresa_id=empresa_id,
-            nome=empresa.nome,
-            codigo=empresa.codigo,
-            nif=empresa.nif,
-            morada=empresa.morada,
-            email=empresa.email,
-            telefone=empresa.telefone,
-            ativo=empresa.ativo
-        )
+        body = empresa.model_dump(exclude_unset=True) if hasattr(empresa, "model_dump") else (empresa.dict(exclude_unset=True) if hasattr(empresa, "dict") else {})
+        result = service.update_empresa(empresa_id=empresa_id, **body)
         if not result:
             raise HTTPException(status_code=404, detail="Empresa não encontrada")
         return result

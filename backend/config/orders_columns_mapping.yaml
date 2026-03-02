@@ -1,0 +1,155 @@
+# =============================================================================
+# Mapeamento de colunas por marketplace para normalização de ficheiros de vendas
+# Cada marketplace (Worten, Amazon, Pixmania, etc.) exporta Excel/CSV com
+# nomes de colunas diferentes. Este ficheiro define o mapeamento para o schema
+# canónico (orders + dropshipping).
+# =============================================================================
+
+# Colunas canónicas esperadas após normalização (schema interno)
+canonical_columns:
+  - numero_pedido
+  - data_criacao
+  - data_venda
+  - canal_vendas
+  - sku_oferta
+  - nome_produto
+  - quantidade
+  - valor_bruto
+  - valor_total_sem_impostos
+  - valor_total_com_iva
+  - total_impostos_pedido
+  - total_impostos_envio
+  - comissao_sem_impostos
+  - valor_comissao_com_impostos
+  - valor_transferido_loja
+  - valor_liquido_venda
+  - custo_fornecedor
+  - gastos_envio
+  - outras_taxas
+  - status
+  - status_operacional
+  - pais_faturamento
+  - detalhes
+  - preco_unitario
+
+# Mapeamento por marketplace (nome do ficheiro ou código do canal)
+# Chave: identificador do marketplace (ex: pixmania, worten, amazon_pt)
+marketplaces:
+  pixmania:
+    # Colunas do export Pixmania (exemplo)
+    columns:
+      "nº pedido": numero_pedido
+      "n° pedido": numero_pedido
+      "numero pedido": numero_pedido
+      "data de criação": data_criacao
+      "data criacao": data_criacao
+      "data criação": data_criacao
+      "canal de vendas": canal_vendas
+      "sku da oferta": sku_oferta
+      "quantidade": quantidade
+      "valor total do pedido sem impostos (incluindo despesas de envio)": valor_total_sem_impostos
+      "valor total do pedido (incluindo IVA e despesas de envio)": valor_total_com_iva
+      "comissão (sem impostos)": comissao_sem_impostos
+      "valor da comissão (incluindo impostos)": valor_comissao_com_impostos
+      "valor transferido para loja (incluindo impostos)": valor_transferido_loja
+      "total de impostos do pedido": total_impostos_pedido
+      "total dos impostos de envio": total_impostos_envio
+      "país do endereço de faturamento": pais_faturamento
+      "detalhes": detalhes
+      "preço unitário": preco_unitario
+      "preco unitario": preco_unitario
+      "estado": status
+      "status": status
+    date_format: "%d/%m/%Y - %H:%M:%S"
+    encoding: utf-8-sig
+
+  worten:
+    columns:
+      "order id": numero_pedido
+      "order_id": numero_pedido
+      "order number": numero_pedido
+      "data": data_criacao
+      "data pedido": data_criacao
+      "data criação": data_criacao
+      "sku": sku_oferta
+      "product name": nome_produto
+      "nome produto": nome_produto
+      "quantity": quantidade
+      "quantidade": quantidade
+      "sale price": valor_bruto
+      "preço venda": valor_bruto
+      "total": valor_total_com_iva
+      "commission": comissao_sem_impostos
+      "comissão": comissao_sem_impostos
+      "status": status
+      "estado": status
+    date_format: "%Y-%m-%d"
+    encoding: utf-8-sig
+
+  amazon_pt:
+    columns:
+      "order-id": numero_pedido
+      "order_id": numero_pedido
+      "purchase-date": data_criacao
+      "purchase_date": data_criacao
+      "sku": sku_oferta
+      "product-name": nome_produto
+      "product_name": nome_produto
+      "quantity": quantidade
+      "item-price": preco_unitario
+      "item_price": preco_unitario
+      "item-status": status
+      "item_status": status
+    date_format: "%Y-%m-%dT%H:%M:%S"
+    encoding: utf-8-sig
+
+  # Fallback genérico: colunas comuns (usado quando marketplace não identificado)
+  default:
+    columns:
+      "numero_pedido": numero_pedido
+      "nº pedido": numero_pedido
+      "n° pedido": numero_pedido
+      "order": numero_pedido
+      "order_id": numero_pedido
+      "order number": numero_pedido
+      "data_criacao": data_criacao
+      "data criação": data_criacao
+      "data criacao": data_criacao
+      "created_date": data_criacao
+      "canal_vendas": canal_vendas
+      "canal vendas": canal_vendas
+      "marketplace": canal_vendas
+      "sku_oferta": sku_oferta
+      "sku da oferta": sku_oferta
+      "sku": sku_oferta
+      "offer_sku": sku_oferta
+      "nome_produto": nome_produto
+      "nome produto": nome_produto
+      "product name": nome_produto
+      "quantidade": quantidade
+      "qty": quantidade
+      "qtd": quantidade
+      "valor_total_sem_impostos": valor_total_sem_impostos
+      "valor total do pedido sem impostos (incluindo despesas de envio)": valor_total_sem_impostos
+      "valor_total_com_iva": valor_total_com_iva
+      "valor total do pedido (incluindo IVA e despesas de envio)": valor_total_com_iva
+      "comissao_sem_impostos": comissao_sem_impostos
+      "comissão (sem impostos)": comissao_sem_impostos
+      "valor_comissao_com_impostos": valor_comissao_com_impostos
+      "valor da comissão (incluindo impostos)": valor_comissao_com_impostos
+      "valor_transferido_loja": valor_transferido_loja
+      "valor transferido para loja (incluindo impostos)": valor_transferido_loja
+      "total_impostos_pedido": total_impostos_pedido
+      "total de impostos do pedido": total_impostos_pedido
+      "total_impostos_envio": total_impostos_envio
+      "total dos impostos de envio": total_impostos_envio
+      "detalhes": detalhes
+      "descricao": detalhes
+      "preco_unitario": preco_unitario
+      "preço unitário": preco_unitario
+      "status": status
+      "estado": status
+      "pais_faturamento": pais_faturamento
+      "país do endereço de faturamento": pais_faturamento
+    date_format: null
+    encoding: utf-8-sig

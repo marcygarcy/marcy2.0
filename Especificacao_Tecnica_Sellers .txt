@@ -1,0 +1,149 @@
+Especificação Funcional: Gestão de Sellers & Financeiro (Multi-Entidade)
+1. CONTEXTO E MODELO DE NEGÓCIO
+1.1 Visão Geral
+O sistema gere vendas de produtos de terceiros (Sellers) em múltiplos marketplaces europeus (Amazon, eBay, etc.) através de contas pertencentes a várias empresas do Grupo.
+* Modelo Operacional: Dropshipping (Sellers fornecem produtos, Grupo vende).
+* Multi-Entidade: Um Seller pode gerar vendas através de qualquer empresa do Grupo.
+* Ciclos de Pagamento: Quinzenal (15 em 15 dias).
+1.2 Regra de Negócio Fundamental (O Desafio)
+?? CRÍTICO: Um Seller pode ter vendas em várias empresas do Grupo no mesmo ciclo (ex: 15 dias). O sistema deve conseguir:
+1. Separar (split) relatórios: O Seller precisa de receber relatórios separados por empresa do Grupo para emitir faturas fiscais corretas (uma para cada NIF nosso).
+2. Unificar a Conta Corrente: O controlo financeiro do saldo do Seller deve ser centralizado numa conta corrente única, mas capaz de receber lançamentos de múltiplas origens.
+Exemplo Prático:
+Seller "123 XYZ Lda" no ciclo 01-15/Nov:
+* Vendas via BigHubSales SA: 3.000€ (Gera Relatório A -> Fatura A)
+* Vendas via BigEuro Store: 1.500€ (Gera Relatório B -> Fatura B)
+* Conta Corrente do Seller: Credita 4.500€ no total.
+1.3 Entidades do Grupo (Empresas de Faturação)
+O sistema deve ter parametrizadas as seguintes empresas pagadoras:
+* BigHubSales SA
+* Grupo HubSales
+* testes xyz
+* BigEuro Store SAS
+* Teste 123
+
+2. MÓDULO: SELLERS
+2.1 Arquitetura
+O módulo é segregado por tipologia, mas partilha a estrutura funcional:
+* Tipologias: BigHUB, BigSales, BigCash.
+* Sub-menus:
+1. Dados de Cadastro
+2. Listagens
+3. Movimentos
+4. Extratos
+5. Listagens para Pagamento
+6. Contas Correntes
+2.2 Dados de Cadastro
+Campos Obrigatórios:
+* ID Seller (Auto), Nome Comercial, Tipo de Seller (Dropdown), NIF (Validação formato), Morada Completa, E-mail, IBAN.
+* Comprovativo de IBAN: Campo para upload/download de ficheiro.
+Funcionalidades de Gestão:
+* Bloquear Seller: Botão que abre modal pedindo "Motivo" e "Data de Cancelamento".
+* Desbloquear Seller: Botão (se bloqueado) que pede "Data de Desbloqueio".
+2.3 Listagens
+* Sellers Ativos: Filtro por data para comparar nº de ativos (evolução mensal).
+* Sellers Cancelados: Histórico com motivo e data de saída.
+
+3. MÓDULO: MOVIMENTOS (Validação Operacional)
+3.1 Interface Principal
+Permite visualizar as transações num intervalo de datas (Ciclo).
+Filtros: Intervalo de Datas | Tipo de Seller | Pesquisa Seller.
+Tabela de Movimentos:
+Colunas: Seller | Vendas Brutas | Comissões Marketplace | Comissões BigHub | Transporte | Repasse | Pago | Pendente | Ação.*
+(Nota: Coluna Transporte só aparece se aplicável).
+3.2 Menu de Ação "Detalhes"
+Ao clicar na ação, o sistema deve oferecer 3 opções distintas:
+1. Detalhes Globais: Mostra todas as orders do seller misturadas, independentemente da empresa do grupo.
+2. Detalhes Por Empresa:
+o Abre uma vista segregada (accordion ou tabela agrupada).
+o Mostra o subtotal a receber de cada empresa (ex: BigHub: 100€; BigEuro: 50€).
+3. Gerar Relatórios e Enviar E-mails: (Inicia o fluxo de pagamento).
+3.3 Fluxo de Draft (Pré-Visualização)
+Ao selecionar "Gerar Relatórios", o sistema mostra um Rascunho do Pagamento:
+* Visualização Agrupada: As orders devem aparecer agrupadas por "Empresa de Faturação".
+* Seleção: Checkboxes para selecionar quais orders entram neste lote.
+* Resumo de Pendentes: Orders não selecionadas aparecem numa lista separada em baixo.
+3.4 Gatilho "Enviar para Pagamento"
+Quando o operador confirma este passo, o sistema executa no backend:
+1. Geração de Documentos: Gera N PDFs (um por cada empresa do grupo envolvida).
+2. Envio de E-mail: Envia os PDFs ao Seller pedindo as faturas.
+3. Split Financeiro:
+o O valor total não vai como um bloco único para a tesouraria.
+o O sistema cria registos de pagamento separados por entidade.
+o Ex: Envia 100€ para a fila da BigHub e 50€ para a fila da BigEuro na tab "Listagens para Pagamento".
+3.5 Regra de Gestão de Saldos Negativos (Transferência de Orders)
+No Dropshipping, quando o total a pagar por uma empresa específica é negativo (Devoluções > Vendas), o sistema não deve consolidar esse valor num "bolo". Deve transitar as transações originais para o próximo ciclo.
+Regra de Processamento (Roll-over de Orders):
+1. Cálculo do Ciclo:
+o O sistema soma todas as orders pendentes para a Empresa X.
+o Exemplo: Venda A (+100€) + Devolução B (-150€) = Total -50€.
+2. Cenário de Saldo Negativo (< 0€):
+o Ação: O sistema bloqueia a geração de pagamento para este ciclo.
+o Estado das Orders: As orders (Venda A e Devolução B) não mudam de estado. Permanecem com status "Pendente" ou "Transitado".
+o Não há Faturação: Não se gera relatório nem se pede fatura neste ciclo para esta empresa específica.
+3. Visualização no Próximo Ciclo:
+o Quando o operador abrir o módulo "Movimentos" no ciclo seguinte (ex: 16-30 Nov), as orders do ciclo anterior (Venda A e Devolução B) aparecem novamente na listagem.
+o Elas devem vir identificadas visualmente (ex: Ícone de relógio ou cor diferente) para indicar que são "Orders Transitadas do Ciclo Anterior".
+o Novo Cálculo: O sistema soma: (Transitado Venda A) + (Transitado Devolução B) + (Novas Vendas do Ciclo Atual).
+
+
+4. MÓDULO: EXTRATOS (Reporting)
+4.1 Filtros Obrigatórios
+Para gerar o extrato, o operador deve definir:
+1. Tipo de Seller: (BigHUB, BigSales, etc.)
+2. Intervalo de Datas: (De / Até)
+3. Seleção de Seller:
+o Opção "Todos" (Relatório Geral).
+o Opção "Único" (Caixa de pesquisa para selecionar um seller específico).
+4.2 Output (Estrutura do Relatório)
+Deve apresentar uma tabela com:
+* Saldo Inicial (na data de início).
+* Total Créditos (Vendas Brutas - Comissões).
+* Total Débitos (Pagamentos Efetuados / Estornos).
+* Saldo Final (na data de fim).
+5. MÓDULO: CONTAS CORRENTES (Por Entidade)
+5.1 Conceito e Filtros
+Ao contrário de uma visão unificada, a Conta Corrente aqui deve refletir a relação fiscal estrita entre uma Empresa do Grupo e o Seller.
+* Objetivo: Permitir responder rapidamente à pergunta: "Quanto é que a BigHubSales SA deve exatamente a este Seller?" sem misturar com as contas da BigEuro.
+5.2 Interface de Acesso (UI)
+O acesso aos dados deve seguir uma hierarquia estrita para evitar erros de leitura:
+1. Passo 1: Seleção de Empresa (Obrigatório)
+o Dropdown com as empresas do grupo (BigHubSales SA, BigEuro Store, etc.).
+o Nota: Enquanto não selecionar a empresa, o resto do ecrã está bloqueado/vazio.
+2. Passo 2: Seleção de Seller
+o Caixa de pesquisa (Nome ou ID).
+o O sistema carrega a Conta Corrente específica para o par: [Empresa Selecionada] <-> [Seller Selecionado].
+
+
+5.3 Estrutura da Tabela e Código de Cores
+A tabela apresenta os movimentos cronológicos. A grande diferença aqui é o indicador visual de estado.
+Regra de Cores (Estado da Transação):
+* ?? Fundo Amarelo: Indica movimentos Pendentes / Transitados. São vendas ou devoluções que já ocorreram, mas que ainda não foram cobertas por um Lote de Pagamento (porque o saldo era negativo ou o ciclo ainda não fechou).
+* ? Fundo Normal (Branco): Indica movimentos Liquidados. São linhas que já foram "fechadas" através de um pagamento efetivo.
+Exemplo Visual da Tabela:
+DataDescriçãoDébito (-)Crédito (+)SaldoVisual05/11Venda Order #A100100,00€100,00€?? (Amarelo)06/11Devolução Order #A200150,00€-50,00€?? (Amarelo)---Nota: O ciclo fechou negativo, nada foi pago.16/11Venda Order #B300200,00€150,00€?? (Amarelo)30/11Pagamento Lote #600150,00€0,00€(Branco)* Comportamento: Assim que o "Pagamento Lote #600" entra no sistema (confirmado como PAGO), o sistema deve automaticamente retirar o fundo amarelo das linhas anteriores (#A100, #A200, #B300), passando-as a branco, pois a dívida foi saldada.
+
+Isto garante que o operador, ao olhar para a Conta Corrente, vê imediatamente "o que ficou para trás" (Amarelo) e o que já está resolvido (verde), o que esta em aberto, branco
+
+
+6. MÓDULO: LISTAGENS PARA PAGAMENTO (Tesouraria)
+6.1 Passo 1: Seleção da Empresa Pagadora
+O operador não paga "tudo de uma vez". Paga por entidade bancária.
+* Filtro: Dropdown "Empresa Pagadora" (ex: Seleciona BigHubSales SA).
+* Resultado: O sistema mostra apenas as dívidas aprovadas referentes à BigHubSales SA. (Os valores da BigEuro ficam ocultos até se trocar o filtro).
+6.2 Passo 2: Geração do Lote (Sugestão)
+* O sistema lista os Sellers e os montantes a pagar.
+* O operador seleciona e clica em "Gerar Ficheiro Bancário (SEPA/XML)".
+* O sistema cria um "Lote de Pagamento" com estado Processando.
+6.3 Passo 3: Reconciliação (O Fecho)
+Quando o dinheiro sai efetivamente do banco, o operador vai ao Lote e marca como "PAGO".
+Gatilhos Automáticos ao marcar como PAGO:
+1. Atualização Visual (Movimentos): As orders individuais contidas nesse lote ficam marcadas a Verde (Status: Pago).
+2. Lançamento na Conta Corrente: O sistema insere automaticamente uma linha de Débito na conta corrente do Seller com a referência do lote e o valor pago.
+3. Notificação: (Opcional) Envia e-mail ao Seller a informar "Pagamento Efetuado".
+
+7. PERMISSÕES E SEGURANÇA
+* Operador: Pode ver movimentos e gerar relatórios (Movimentos).
+* Financeiro: Pode aceder a Listagens para Pagamento e marcar Lotes como Pagos.
+* Admin: Pode editar dados bancários de Sellers e desbloquear Sellers.
+

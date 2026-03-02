@@ -2,6 +2,7 @@
 from fastapi import APIRouter, Depends, Query
 from typing import Optional
 from app.services.kpi_service import KPIService
+from app.services.cache_service import CacheService
 from app.api.deps import get_kpi_service
 from app.models.kpis import (
     PrazosResponse,
@@ -88,6 +89,12 @@ async def get_all_kpis(
     service: KPIService = Depends(get_kpi_service)
 ):
     """Obtém todos os KPIs."""
+    # Verificar cache (cache válido por 2 minutos)
+    cache_key = f"kpis_all_{empresa_id}_{marketplace_id}"
+    cached = CacheService.get(cache_key, max_age_seconds=120)
+    if cached is not None:
+        return cached
+    
     try:
         # Tentar calcular cada KPI individualmente para evitar que um erro pare tudo
         try:
@@ -157,7 +164,7 @@ async def get_all_kpis(
             print(f"Erro ao obter último ciclo pago: {e}")
             ultimo_ciclo_pago = UltimoCicloPagoResponse(ciclo=None, valor=0.0, data_ciclo=None)
         
-        return KPIsResponse(
+        result = KPIsResponse(
             prazos=prazos,
             comissoes_acum=comissoes_acum,
             comissoes_ult=comissoes_ult,
@@ -170,6 +177,11 @@ async def get_all_kpis(
             vendas_brutas=vendas_brutas,
             ultimo_ciclo_pago=ultimo_ciclo_pago
         )
+        
+        # Guardar no cache
+        CacheService.set(cache_key, result)
+        
+        return result
     except Exception as e:
         from fastapi import HTTPException
         import traceback
@@ -199,12 +211,32 @@ async def get_reconciliation(
 async def get_ultimo_ciclo_detalhes(
     empresa_id: Optional[int] = Query(None, description="ID da empresa"),
     marketplace_id: Optional[int] = Query(None, description="ID do marketplace"),
+    ciclo: Optional[str] = Query(None, description="Ciclo específico (opcional, se não fornecido usa o último)"),
     service: KPIService = Depends(get_kpi_service)
 ):
-    """Obtém breakdown detalhado do último ciclo por tipo de transação."""
+    """Obtém breakdown detalhado de um ciclo por tipo de transação."""
     try:
-        breakdown = service.get_last_cycle_breakdown(empresa_id=empresa_id, marketplace_id=marketplace_id)
+        if ciclo:
+            # Obter breakdown do ciclo específico
+            breakdown = service.get_cycle_breakdown(ciclo, empresa_id=empresa_id, marketplace_id=marketplace_id)
+        else:
+            # Obter breakdown do último ciclo
+            breakdown = service.get_last_cycle_breakdown(empresa_id=empresa_id, marketplace_id=marketplace_id)
         return CycleBreakdownResponse(**breakdown)
+    finally:
+        service.close()
+
+
+@router.get("/cycles")
+async def get_available_cycles(
+    empresa_id: Optional[int] = Query(None, description="ID da empresa"),
+    marketplace_id: Optional[int] = Query(None, description="ID do marketplace"),
+    service: KPIService = Depends(get_kpi_service)
+):
+    """Obtém lista de ciclos disponíveis ordenados por data."""
+    try:
+        cycles = service.get_available_cycles(empresa_id=empresa_id, marketplace_id=marketplace_id)
+        return {"cycles": cycles}
     finally:
         service.close()
 
@@ -225,6 +257,26 @@ async def get_vendas_brutas_por_ciclo(
         print(f"Erro ao obter vendas brutas por ciclo: {e}")
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Erro ao obter vendas brutas por ciclo: {str(e)}")
+    finally:
+        service.close()
+
+
+@router.get("/comissoes-por-ciclo")
+async def get_comissoes_por_ciclo(
+    empresa_id: Optional[int] = Query(None, description="ID da empresa"),
+    marketplace_id: Optional[int] = Query(None, description="ID do marketplace"),
+    service: KPIService = Depends(get_kpi_service)
+):
+    """Obtém comissões e impostos agrupados por ciclo para gráfico."""
+    try:
+        cycles = service.get_comissoes_por_ciclo(empresa_id=empresa_id, marketplace_id=marketplace_id)
+        return {"cycles": cycles}
+    except Exception as e:
+        from fastapi import HTTPException
+        import traceback
+        print(f"Erro ao obter comissões por ciclo: {e}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Erro ao obter comissões por ciclo: {str(e)}")
     finally:
         service.close()
 

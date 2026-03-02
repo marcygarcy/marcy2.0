@@ -1,6 +1,4 @@
-import axios from 'axios';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+import apiClient from './client';
 
 export interface Empresa {
   id: number;
@@ -8,9 +6,16 @@ export interface Empresa {
   codigo?: string;
   nif?: string;
   morada?: string;
+  pais?: string;
   email?: string;
   telefone?: string;
   ativo: boolean;
+  designacao_social?: string;
+  morada_fiscal?: string;
+  email_financeiro?: string;
+  logotipo_url?: string;
+  iban?: string;
+  moeda_base?: string;
 }
 
 export interface EmpresaCreate {
@@ -20,6 +25,13 @@ export interface EmpresaCreate {
   morada?: string;
   email?: string;
   telefone?: string;
+  pais?: string;
+  designacao_social?: string;
+  morada_fiscal?: string;
+  email_financeiro?: string;
+  logotipo_url?: string;
+  iban?: string;
+  moeda_base?: string;
 }
 
 export interface EmpresaUpdate {
@@ -30,31 +42,38 @@ export interface EmpresaUpdate {
   email?: string;
   telefone?: string;
   ativo?: boolean;
+  pais?: string;
+  designacao_social?: string;
+  morada_fiscal?: string;
+  email_financeiro?: string;
+  logotipo_url?: string;
+  iban?: string;
+  moeda_base?: string;
 }
 
 export const empresasApi = {
   getAll: async (): Promise<Empresa[]> => {
-    const response = await axios.get(`${API_URL}/api/v1/empresas/`);
-    return response.data.empresas || [];
+    const { data } = await apiClient.get<{ empresas?: Empresa[] }>('/api/v1/empresas/');
+    return Array.isArray(data?.empresas) ? data.empresas : [];
   },
 
   getById: async (id: number): Promise<Empresa> => {
-    const response = await axios.get(`${API_URL}/api/v1/empresas/${id}`);
-    return response.data;
+    const { data } = await apiClient.get<Empresa>(`/api/v1/empresas/${id}`);
+    return data;
   },
 
   create: async (empresa: EmpresaCreate): Promise<Empresa> => {
-    const response = await axios.post(`${API_URL}/api/v1/empresas/`, empresa);
-    return response.data;
+    const { data } = await apiClient.post<Empresa>('/api/v1/empresas/', empresa);
+    return data;
   },
 
   update: async (id: number, empresa: EmpresaUpdate): Promise<Empresa> => {
-    const response = await axios.put(`${API_URL}/api/v1/empresas/${id}`, empresa);
-    return response.data;
+    const { data } = await apiClient.put<Empresa>(`/api/v1/empresas/${id}`, empresa);
+    return data;
   },
 
   delete: async (id: number): Promise<void> => {
-    await axios.delete(`${API_URL}/api/v1/empresas/${id}`);
+    await apiClient.delete(`/api/v1/empresas/${id}`);
   },
 };
 

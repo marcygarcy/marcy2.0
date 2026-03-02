@@ -10,16 +10,31 @@ CONFIG_DIR = BASE_DIR / "config"
 
 
 class Settings(BaseSettings):
-    """Configurações da aplicação."""
-    
+    """Configurações da aplicação.
+    Persistent DB: database_path grava em ficheiro (ex: data/warehouse.duckdb).
+    Definir DATABASE_PATH no .env para override. Nunca usar :memory: em produção.
+    """
+
     app_name: str = "Pagamentos Marketplace"
     locale: str = "pt-PT"
-    database_path: str = "data/warehouse.duckdb"
+    database_path: str = "data/warehouse.duckdb"  # .env: DATABASE_PATH
     trf_window_days: int = 7
-    
+    # CORS: "*" para dev; em prod usar "https://meusite.com,https://outro.com"
+    cors_origins: str = "*"
+    # Em produção definir como false para não logar headers em cada pedido
+    debug_logging: bool = True
+    # Chave mestra para encriptar senhas em supplier_access (variável de ambiente SUPPLIER_ACCESS_SECRET)
+    supplier_access_secret: str = ""
+
     class Config:
         env_file = ".env"
         case_sensitive = False
+
+    def get_cors_origins(self) -> list[str]:
+        """Devolve lista de origens CORS a partir da string configurada."""
+        if self.cors_origins.strip() == "*":
+            return ["*"]
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
 
 def load_yaml_config(filename: str) -> Dict:

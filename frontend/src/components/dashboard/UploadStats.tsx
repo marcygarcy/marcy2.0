@@ -10,7 +10,7 @@ export function UploadStats() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>📊 Estatísticas dos Dados Carregados</CardTitle>
+          <CardTitle>📊 Históricos de Dados</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="text-center py-8 text-slate-400">A carregar...</div>
@@ -24,12 +24,12 @@ export function UploadStats() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>📊 Estatísticas dos Dados Carregados</CardTitle>
+        <CardTitle>📊 Históricos de Dados</CardTitle>
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="bg-slate-800 rounded-lg p-4">
-            <p className="text-sm text-slate-400 mb-1">Total Pedidos</p>
+            <p className="text-sm text-slate-400 mb-1">Histórico de Pedidos Acumulados</p>
             <p className="text-2xl font-bold text-blue-400">{kpis.pedidos_recebidos}</p>
           </div>
           <div className="bg-slate-800 rounded-lg p-4">

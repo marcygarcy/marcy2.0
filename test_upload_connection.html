@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste de Upload</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #1a1a2e;
+            color: #eee;
+        }
+        .container {
+            background: #16213e;
+            padding: 30px;
+            border-radius: 10px;
+        }
+        button {
+            background: #0f3460;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 10px 5px;
+            font-size: 16px;
+        }
+        button:hover {
+            background: #1a4d7a;
+        }
+        button:disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
+        .log {
+            background: #0a0e27;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+        }
+        .success { color: #4ade80; }
+        .error { color: #f87171; }
+        .info { color: #60a5fa; }
+        input[type="file"] {
+            margin: 20px 0;
+            padding: 10px;
+            border: 2px dashed #555;
+            border-radius: 5px;
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Teste de Conexão e Upload</h1>
+        
+        <div>
+            <button onclick="testConnection()">1️⃣ Testar Conexão com Backend</button>
+            <button onclick="testCORS()">2️⃣ Testar CORS</button>
+        </div>
+
+        <div style="margin-top: 30px;">
+            <h3>3️⃣ Testar Upload de Ficheiro</h3>
+            <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
+            <div>
+                <label>Empresa ID: <input type="number" id="empresaId" value="2" style="width: 100px; padding: 5px;"></label>
+                <label style="margin-left: 20px;">Marketplace ID: <input type="number" id="marketplaceId" value="1" style="width: 100px; padding: 5px;"></label>
+            </div>
+            <button onclick="testUpload()">Fazer Upload de Teste</button>
+        </div>
+
+        <h3>📋 Logs:</h3>
+        <div id="logs" class="log"></div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:8000';
+        const logsDiv = document.getElementById('logs');
+
+        function addLog(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const log = document.createElement('div');
+            log.className = type;
+            log.textContent = `[${timestamp}] ${message}`;
+            logsDiv.appendChild(log);
+            logsDiv.scrollTop = logsDiv.scrollHeight;
+            console.log(message);
+        }
+
+        function clearLogs() {
+            logsDiv.innerHTML = '';
+        }
+
+        async function testConnection() {
+            clearLogs();
+            addLog('🔍 Testando conexão com backend...', 'info');
+            
+            try {
+                const response = await fetch(`${API_URL}/`, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    addLog(`✅ Backend respondeu! Status: ${response.status}`, 'success');
+                    addLog(`📦 Resposta: ${JSON.stringify(data)}`, 'success');
+                } else {
+                    addLog(`❌ Backend respondeu com erro: ${response.status} - ${response.statusText}`, 'error');
+                }
+            } catch (error) {
+                addLog(`❌ Erro ao conectar com backend: ${error.message}`, 'error');
+                addLog('💡 Verifique se o backend está a correr em http://localhost:8000', 'error');
+            }
+        }
+
+        async function testCORS() {
+            clearLogs();
+            addLog('🔍 Testando CORS...', 'info');
+            
+            try {
+                const response = await fetch(`${API_URL}/health`, {
+                    method: 'GET',
+                    mode: 'cors',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+                
+                if (response.ok) {
+                    addLog('✅ CORS está configurado corretamente!', 'success');
+                } else {
+                    addLog(`⚠️ CORS pode ter problemas: ${response.status}`, 'error');
+                }
+            } catch (error) {
+                addLog(`❌ Erro CORS: ${error.message}`, 'error');
+            }
+        }
+
+        async function testUpload() {
+            clearLogs();
+            const fileInput = document.getElementById('fileInput');
+            const empresaId = document.getElementById('empresaId').value;
+            const marketplaceId = document.getElementById('marketplaceId').value;
+            
+            if (!fileInput.files || fileInput.files.length === 0) {
+                addLog('⚠️ Por favor, selecione um ficheiro primeiro!', 'error');
+                return;
+            }
+
+            const file = fileInput.files[0];
+            addLog(`📁 Ficheiro selecionado: ${file.name} (${file.size} bytes)`, 'info');
+            addLog(`🏢 Empresa ID: ${empresaId}, Marketplace ID: ${marketplaceId}`, 'info');
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('empresa_id', empresaId);
+            formData.append('marketplace_id', marketplaceId);
+
+            addLog('📤 Verificando FormData...', 'info');
+            for (const [key, value] of formData.entries()) {
+                if (value instanceof File) {
+                    addLog(`   - ${key}: File(${value.name}, ${value.size} bytes)`, 'info');
+                } else {
+                    addLog(`   - ${key}: ${value}`, 'info');
+                }
+            }
+
+            addLog('🚀 Enviando pedido...', 'info');
+            const startTime = Date.now();
+
+            try {
+                const response = await fetch(`${API_URL}/api/v1/upload/transactions`, {
+                    method: 'POST',
+                    body: formData
+                    // Não definir Content-Type - o browser faz isso automaticamente com boundary
+                });
+
+                const duration = Date.now() - startTime;
+                addLog(`⏱️ Resposta recebida em ${duration}ms`, 'info');
+                addLog(`📊 Status: ${response.status} ${response.statusText}`, response.ok ? 'success' : 'error');
+
+                const contentType = response.headers.get('content-type');
+                addLog(`📋 Content-Type da resposta: ${contentType}`, 'info');
+
+                if (contentType && contentType.includes('application/json')) {
+                    const data = await response.json();
+                    addLog(`📦 Dados da resposta: ${JSON.stringify(data, null, 2)}`, response.ok ? 'success' : 'error');
+                    
+                    if (data.success) {
+                        addLog(`✅ Upload bem-sucedido! ${data.records_inserted} registos inseridos`, 'success');
+                    } else {
+                        addLog(`❌ Upload falhou: ${data.message}`, 'error');
+                    }
+                } else {
+                    const text = await response.text();
+                    addLog(`📄 Resposta (texto): ${text}`, 'error');
+                }
+            } catch (error) {
+                const duration = Date.now() - startTime;
+                addLog(`❌ Erro após ${duration}ms: ${error.message}`, 'error');
+                addLog(`🔍 Tipo de erro: ${error.name}`, 'error');
+                if (error.stack) {
+                    addLog(`📚 Stack trace: ${error.stack}`, 'error');
+                }
+            }
+        }
+
+        // Executar teste de conexão ao carregar
+        window.onload = () => {
+            addLog('🎯 Página de teste carregada. Clique nos botões para testar.', 'info');
+            addLog(`📍 URL da API: ${API_URL}`, 'info');
+        };
+    </script>
+</body>
+</html>
+
