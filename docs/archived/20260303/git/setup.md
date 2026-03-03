@@ -37,12 +37,12 @@ git config --list
 
 ### URL do Repositório
 ```
-https://github.com/marcygarcy/marcy.git
+https://github.com/marcygarcy/marcy2.0.git
 ```
 
 ### Clonar
 ```bash
-git clone https://github.com/marcygarcy/marcy.git
+git clone https://github.com/marcygarcy/marcy2.0.git
 cd marcy
 ```
 

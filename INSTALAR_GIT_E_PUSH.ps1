@@ -126,7 +126,7 @@ Write-Host "========================================" -ForegroundColor Cyan
 git remote remove origin 2>$null
 
 # Adicionar novo remote
-git remote add origin https://github.com/marcygarcy/marcy.git
+git remote add origin https://github.com/marcygarcy/marcy2.0.git
 
 # Configurar branch
 git branch -M main
@@ -149,7 +149,7 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "[SUCESSO] Projeto enviado para GitHub!" -ForegroundColor Green
     Write-Host "========================================" -ForegroundColor Green
     Write-Host ""
-    Write-Host "Repositório: https://github.com/marcygarcy/marcy.git" -ForegroundColor Cyan
+    Write-Host "Repositório: https://github.com/marcygarcy/marcy2.0.git" -ForegroundColor Cyan
 } else {
     Write-Host ""
     Write-Host "========================================" -ForegroundColor Red

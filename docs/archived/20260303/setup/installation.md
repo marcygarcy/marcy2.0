@@ -5,7 +5,7 @@ Guia passo a passo para instalar o projeto **Recebimentos Marketplaces V1.1**.
 ## Passo 1: Clonar o Repositório
 
 ```bash
-git clone https://github.com/marcygarcy/marcy.git
+git clone https://github.com/marcygarcy/marcy2.0.git
 cd marcy
 ```
 

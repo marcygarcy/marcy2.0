@@ -47,7 +47,7 @@ git commit -m "Initial commit: Recebimentos Marketplaces V1.1"
 
 ### Passo 7: Adicionar remote do GitHub
 ```powershell
-git remote add origin https://github.com/marcygarcy/marcy.git
+git remote add origin https://github.com/marcygarcy/marcy2.0.git
 ```
 
 ### Passo 8: Configurar branch principal

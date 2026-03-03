@@ -50,7 +50,7 @@ echo ========================================
 echo Configurando remote do GitHub...
 echo ========================================
 git remote remove origin 2>nul
-git remote add origin https://github.com/marcygarcy/marcy.git
+git remote add origin https://github.com/marcygarcy/marcy2.0.git
 
 echo.
 echo ========================================
@@ -78,7 +78,7 @@ if %ERRORLEVEL% EQU 0 (
     echo [SUCESSO] Projeto enviado para GitHub!
     echo ========================================
     echo.
-    echo Repositorio: https://github.com/marcygarcy/marcy.git
+    echo Repositorio: https://github.com/marcygarcy/marcy2.0.git
 ) else (
     echo.
     echo ========================================

@@ -51,7 +51,7 @@ git remote -v
 
 ### Adicionar Remote
 ```bash
-git remote add origin https://github.com/marcygarcy/marcy.git
+git remote add origin https://github.com/marcygarcy/marcy2.0.git
 ```
 
 ### Configurar Branch
@@ -88,7 +88,7 @@ git pull origin main --allow-unrelated-histories
 
 ### SSH (Alternativa)
 ```bash
-git remote set-url origin git@github.com:marcygarcy/marcy.git
+git remote set-url origin git@github.com:marcygarcy/marcy2.0.git
 ```
 
 ## Referências

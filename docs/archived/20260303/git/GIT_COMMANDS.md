@@ -31,7 +31,7 @@ git commit -m "Initial commit: Recebimentos Marketplaces V1.1"
 
 ## Passo 6: Adicionar remote do GitHub
 ```bash
-git remote add origin https://github.com/marcygarcy/marcy.git
+git remote add origin https://github.com/marcygarcy/marcy2.0.git
 ```
 
 ## Passo 7: Verificar branch principal (geralmente 'main' ou 'master')
@@ -67,7 +67,7 @@ git push -u origin main
 ```bash
 # Para HTTPS, pode precisar de token de acesso pessoal
 # Ou usar SSH:
-git remote set-url origin git@github.com:marcygarcy/marcy.git
+git remote set-url origin git@github.com:marcygarcy/marcy2.0.git
 ```
 
 ### Forçar push (apenas se necessário e tiver certeza):
