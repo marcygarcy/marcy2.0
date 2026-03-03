@@ -26,6 +26,7 @@ import { OfficeLogisticsView } from '@/components/logistics/OfficeLogisticsView'
 import { BillingView } from '@/components/billing/BillingView';
 import { RMAView } from '@/components/rma/RMAView';
 import { OfficeStockView } from '@/components/office/OfficeStockView';
+import { DocsView } from '@/components/docs/DocsView';
 import { BankStatement } from '@/components/bank/BankStatement';
 import { SalesChart } from '@/components/dashboard/SalesChart';
 import { TopProductsCard } from '@/components/dashboard/TopProductsCard';
@@ -115,6 +116,7 @@ export default function Home() {
   const isModuloRMA = moduloSelecionado?.id === 'rma';
   const isModuloBilling = moduloSelecionado?.id === 'billing';
   const isModuloOfficeStock = moduloSelecionado?.id === 'office-stock';
+  const isModuloDocs = moduloSelecionado?.id === 'documentacao';
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white flex">
@@ -152,6 +154,8 @@ export default function Home() {
           <BillingView />
         ) : isModuloOfficeStock ? (
           <OfficeStockView />
+        ) : isModuloDocs ? (
+          <DocsView />
         ) : (
         <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>

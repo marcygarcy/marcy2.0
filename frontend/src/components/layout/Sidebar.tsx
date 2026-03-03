@@ -7,7 +7,7 @@ import { marketplacesApi, Marketplace } from '@/lib/api/marketplaces';
 import {
   Building2, ChevronDown, ChevronRight, Store, CreditCard, FolderOpen,
   Users, TrendingUp, ShoppingCart, Landmark, MapPin, Package, RotateCcw,
-  Boxes, Truck, DollarSign, Zap, BarChart2, Globe, Link2, FileText,
+  Boxes, DollarSign, Zap, Globe, Link2, FileText, BookOpen,
 } from 'lucide-react';
 
 // ─── Hardcoded data ────────────────────────────────────────────────────────────
@@ -85,6 +85,7 @@ const MODULO_BANCOS       = { id: 'bancos',                   nome: 'Bancos',   
 const MODULO_FINANCAS     = { id: 'financas',                 nome: 'Finanças Globais',    icone: 'DollarSign' };
 const MODULO_DADOS_MESTRES = { id: 'dados-mestres',           nome: 'Dados Mestres',       icone: 'FolderOpen' };
 const MODULO_AUTOMATION   = { id: 'automation',              nome: 'Status de Automação', icone: 'Zap' };
+const MODULO_DOCS         = { id: 'documentacao',            nome: 'Documentação',        icone: 'BookOpen' };
 
 // ─── Section header component ─────────────────────────────────────────────────
 
@@ -512,6 +513,17 @@ export function Sidebar() {
           />
         </div>
       )}
+
+      {/* ═══ DOCUMENTAÇÃO ═══════════════════════════════════════════════════ */}
+      <div className="mt-auto pt-3 border-t border-slate-700/60">
+        <NavItem
+          icon={<BookOpen className="w-4 h-4 shrink-0" />}
+          label="Documentação"
+          active={isActive(MODULO_DOCS.id)}
+          activeColor="bg-violet-600 text-white"
+          onClick={() => setModuloSelecionado(MODULO_DOCS)}
+        />
+      </div>
     </div>
   );
 }
