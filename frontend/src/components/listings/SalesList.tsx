@@ -3,8 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { TrendingUp, ShoppingCart, Loader2, DollarSign, Package, BarChart3, List, ChevronDown, Upload, Globe, CheckCircle, FileText, XCircle } from 'lucide-react';
-import { salesApi, type OrderWithMargin, type SalesMetrics, type TopProduct, type SalesOrderListItem, type SalesStats, type RecentWithMarginItem } from '@/lib/api/sales';
+import { TrendingUp, ShoppingCart, Loader2, DollarSign, Package, BarChart3, List, ChevronDown, Upload, Globe, CheckCircle, FileText, XCircle, X, ExternalLink, Download, ShoppingBag, Truck, User, TrendingDown, AlertTriangle } from 'lucide-react';
+import { salesApi, type OrderWithMargin, type SalesMetrics, type TopProduct, type SalesOrderListItem, type SalesStats, type RecentWithMarginItem, type SalesOrderDetail } from '@/lib/api/sales';
 import { billingApi, type ProformaData } from '@/lib/api/billing';
 import { ProformaPreview } from '@/components/billing/ProformaPreview';
 import { ordersApi, type Order } from '@/lib/api/orders';
@@ -64,6 +64,55 @@ export function SalesList() {
   const [cancelSupplierAcceptsReturn, setCancelSupplierAcceptsReturn] = useState(false);
   const [cancelCreateCreditNote, setCancelCreateCreditNote] = useState(true);
   const [cancelLoading, setCancelLoading] = useState(false);
+
+  // Drawer de detalhe
+  const [drawerOrderId, setDrawerOrderId] = useState<number | null>(null);
+  const [drawerDetail, setDrawerDetail] = useState<SalesOrderDetail | null>(null);
+  const [drawerLoading, setDrawerLoading] = useState(false);
+
+  // Export Excel
+  const [exportingExcel, setExportingExcel] = useState(false);
+
+  const { setModuloSelecionado } = useApp();
+
+  const openDrawer = async (id: number) => {
+    setDrawerOrderId(id);
+    setDrawerDetail(null);
+    setDrawerLoading(true);
+    try {
+      const d = await salesApi.getOrderDetail(id);
+      setDrawerDetail(d);
+    } catch {
+      setDrawerDetail(null);
+    } finally {
+      setDrawerLoading(false);
+    }
+  };
+
+  const handleExport = async () => {
+    setExportingExcel(true);
+    try {
+      const blob = await salesApi.exportSales({
+        empresa_id: explorerEmpresaId !== '' ? Number(explorerEmpresaId) : undefined,
+        marketplace_id: explorerMarketplaceId !== '' ? Number(explorerMarketplaceId) : undefined,
+        customer_country: explorerCountry || undefined,
+        status: explorerStatus || undefined,
+        data_inicio: explorerDataInicio || undefined,
+        data_fim: explorerDataFim || undefined,
+        ids: selectedSalesIds.size > 0 ? Array.from(selectedSalesIds) : undefined,
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `vendas_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      alert('Erro ao exportar.');
+    } finally {
+      setExportingExcel(false);
+    }
+  };
 
   const empresaId = empresaSelecionada?.id ?? undefined;
   const marketplaceId = marketplaceSelecionado?.id ?? undefined;
@@ -844,40 +893,51 @@ export function SalesList() {
                       </label>
                     </div>
                   </div>
-                  {selectedSalesIds.size > 0 && (
-                    <div className="flex items-center gap-3 mb-4 p-3 rounded-lg bg-amber-950/30 border border-amber-700/50">
-                      <span className="text-amber-200 text-sm">
-                        {selectedSalesIds.size} pedido(s) selecionado(s)
-                      </span>
-                      <button
-                        type="button"
-                        disabled={bulkProformaLoading}
-                        onClick={async () => {
-                          setBulkProformaLoading(true);
-                          try {
-                            await billingApi.bulkCreateProformas(Array.from(selectedSalesIds));
-                            loadSalesExplorer();
-                            setSelectedSalesIds(new Set());
-                          } catch (e) {
-                            alert('Erro ao gerar proformas.');
-                          } finally {
-                            setBulkProformaLoading(false);
-                          }
-                        }}
-                        className="px-4 py-2 rounded bg-amber-600 text-white text-sm font-medium hover:bg-amber-500 disabled:opacity-50 flex items-center gap-2"
-                      >
-                        {bulkProformaLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
-                        Gerar {selectedSalesIds.size} proforma(s)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedSalesIds(new Set())}
-                        className="px-3 py-2 rounded bg-slate-700 text-slate-300 text-sm hover:bg-slate-600"
-                      >
-                        Limpar seleção
-                      </button>
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                      {selectedSalesIds.size > 0 && (
+                        <>
+                          <span className="text-amber-200 text-sm">{selectedSalesIds.size} selecionado(s)</span>
+                          <button
+                            type="button"
+                            disabled={bulkProformaLoading}
+                            onClick={async () => {
+                              setBulkProformaLoading(true);
+                              try {
+                                await billingApi.bulkCreateProformas(Array.from(selectedSalesIds));
+                                loadSalesExplorer();
+                                setSelectedSalesIds(new Set());
+                              } catch {
+                                alert('Erro ao gerar proformas.');
+                              } finally {
+                                setBulkProformaLoading(false);
+                              }
+                            }}
+                            className="px-3 py-1.5 rounded bg-amber-600 text-white text-xs font-medium hover:bg-amber-500 disabled:opacity-50 flex items-center gap-1.5"
+                          >
+                            {bulkProformaLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <FileText className="w-3 h-3" />}
+                            Proformas ({selectedSalesIds.size})
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedSalesIds(new Set())}
+                            className="px-3 py-1.5 rounded bg-slate-700 text-slate-300 text-xs hover:bg-slate-600"
+                          >
+                            Limpar
+                          </button>
+                        </>
+                      )}
                     </div>
-                  )}
+                    <button
+                      type="button"
+                      disabled={exportingExcel}
+                      onClick={handleExport}
+                      className="px-3 py-1.5 rounded bg-emerald-700 text-white text-xs font-medium hover:bg-emerald-600 disabled:opacity-50 flex items-center gap-1.5"
+                    >
+                      {exportingExcel ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+                      {selectedSalesIds.size > 0 ? `Exportar (${selectedSalesIds.size})` : 'Exportar Excel'}
+                    </button>
+                  </div>
                   {salesListLoading ? (
                     <div className="flex items-center justify-center py-12 text-slate-400">
                       <Loader2 className="w-6 h-6 animate-spin mr-2" />
@@ -912,12 +972,13 @@ export function SalesList() {
                             <th className="text-left py-2 px-2 text-slate-300 font-semibold">País</th>
                             <th className="text-right py-2 px-2 text-slate-300 font-semibold">Bruto</th>
                             <th className="text-right py-2 px-2 text-slate-300 font-semibold">Líquido</th>
+                            <th className="text-right py-2 px-2 text-slate-300 font-semibold">Margem</th>
                             <th className="text-left py-2 px-2 text-slate-300 font-semibold">Estado</th>
-                            <th className="text-left py-2 px-2 text-slate-300 font-semibold">Comprada</th>
+                            <th className="text-left py-2 px-2 text-slate-300 font-semibold">Compra</th>
                             <th className="text-left py-2 px-2 text-slate-300 font-semibold">Estado envio</th>
                             <th className="text-left py-2 px-2 text-slate-300 font-semibold">Transportadora</th>
                             <th className="text-left py-2 px-2 text-slate-300 font-semibold">Tracking</th>
-                            <th className="text-left py-2 px-2 text-slate-300 font-semibold">Estado transportadora</th>
+                            <th className="text-left py-2 px-2 text-slate-300 font-semibold">Estado Transp.</th>
                             <th className="text-left py-2 px-2 text-slate-300 font-semibold">Ações</th>
                           </tr>
                         </thead>
@@ -938,12 +999,19 @@ export function SalesList() {
                                   className="rounded border-slate-500 bg-slate-800 text-amber-500"
                                 />
                               </td>
-                              <td className="py-2 px-2 text-slate-200 font-medium">{row.external_order_id || `#${row.id}`}</td>
+                              <td className="py-2 px-2 text-slate-200 font-medium cursor-pointer hover:text-amber-300 transition-colors" onClick={() => openDrawer(row.id)}>{row.external_order_id || `#${row.id}`}</td>
                               <td className="py-2 px-2 text-slate-400">{row.marketplace_nome ?? '—'}</td>
                               <td className="py-2 px-2 text-slate-400">{formatDate(row.order_date)}</td>
                               <td className="py-2 px-2 text-slate-400">{row.customer_country ?? '—'}</td>
                               <td className="py-2 px-2 text-right text-slate-300">{row.total_gross != null ? formatCurrency(row.total_gross) : '—'}</td>
                               <td className="py-2 px-2 text-right text-emerald-400">{row.total_net_value != null ? formatCurrency(row.total_net_value) : '—'}</td>
+                              <td className="py-2 px-2 text-right">
+                                {row.margem_pct != null ? (
+                                  <span className={`text-xs font-medium ${row.margem_pct >= 10 ? 'text-emerald-400' : row.margem_pct >= 0 ? 'text-amber-400' : 'text-red-400'}`}>
+                                    {row.margem_pct > 0 ? '+' : ''}{row.margem_pct.toFixed(1)}%
+                                  </span>
+                                ) : <span className="text-slate-600 text-xs">—</span>}
+                              </td>
                               <td className="py-2 px-2">
                                 <span className={`px-2 py-0.5 rounded text-xs ${
                                   row.status === 'Paid' ? 'bg-emerald-900/50 text-emerald-400' :
@@ -956,12 +1024,21 @@ export function SalesList() {
                                 </span>
                               </td>
                               <td className="py-2 px-2">
-                                {['Purchased', 'Shipped', 'Delivered', 'Paid'].includes(row.status ?? '') ? (
-                                  <span className="inline-flex items-center gap-1 text-emerald-400 text-xs">
-                                    <CheckCircle className="w-4 h-4" /> Sim
-                                  </span>
+                                {row.purchase_order_id ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => openDrawer(row.id)}
+                                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium border ${
+                                      row.po_status === 'Paid' || row.po_status === 'Received' ? 'bg-emerald-900/40 text-emerald-300 border-emerald-700/50' :
+                                      row.po_status === 'Ordered' ? 'bg-blue-900/40 text-blue-300 border-blue-700/50' :
+                                      'bg-slate-700/60 text-slate-300 border-slate-600/50'
+                                    }`}
+                                    title={`Fornecedor: ${row.supplier_nome ?? '—'} · Estado PO: ${row.po_status ?? '—'}`}
+                                  >
+                                    <ShoppingBag className="w-3 h-3" />PO#{row.purchase_order_id}
+                                  </button>
                                 ) : (
-                                  <span className="text-slate-500 text-xs">Não</span>
+                                  <span className="text-slate-500 text-xs">—</span>
                                 )}
                               </td>
                               <td className="py-2 px-2">
@@ -1002,13 +1079,41 @@ export function SalesList() {
                                 <div className="flex flex-wrap gap-1">
                                   <button
                                     type="button"
+                                    onClick={() => openDrawer(row.id)}
+                                    className="px-2 py-1 rounded bg-slate-600/80 text-white text-xs font-medium hover:bg-slate-500 flex items-center gap-1"
+                                    title="Ver detalhe"
+                                  >
+                                    <ExternalLink className="w-3 h-3" />
+                                  </button>
+                                  {row.purchase_order_id && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setModuloSelecionado({ id: 'compras', nome: 'Compras', icone: '🛒' })}
+                                      className="px-2 py-1 rounded bg-sky-700/80 text-white text-xs font-medium hover:bg-sky-600 flex items-center gap-1"
+                                      title={`Ver PO#${row.purchase_order_id} em Compras`}
+                                    >
+                                      <ShoppingBag className="w-3 h-3" />
+                                    </button>
+                                  )}
+                                  {row.tracking_number && (
+                                    <button
+                                      type="button"
+                                      onClick={() => openDrawer(row.id)}
+                                      className="px-2 py-1 rounded bg-teal-700/80 text-white text-xs font-medium hover:bg-teal-600 flex items-center gap-1"
+                                      title={`Tracking: ${row.tracking_number}`}
+                                    >
+                                      <Truck className="w-3 h-3" />
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
                                     disabled={proformaLoadingId === row.id}
                                     onClick={async () => {
                                       setProformaLoadingId(row.id);
                                       try {
                                         const data = await billingApi.createProforma(row.id);
                                         setProformaPreviewData(data);
-                                      } catch (err) {
+                                      } catch {
                                         alert('Erro ao gerar proforma. Verifique se a venda existe e tem linhas.');
                                       } finally {
                                         setProformaLoadingId(null);
@@ -1143,6 +1248,209 @@ export function SalesList() {
               onClose={() => setProformaPreviewData(null)}
               onPrint={() => window.print()}
             />
+          </div>
+        </div>
+      )}
+
+      {/* ── Drawer de Detalhe da Order ─────────────────────────────────── */}
+      {drawerOrderId !== null && (
+        <div className="fixed inset-0 z-50 flex print:hidden" onClick={() => setDrawerOrderId(null)}>
+          <div className="flex-1 bg-black/50" />
+          <div
+            className="w-full max-w-2xl bg-slate-900 border-l border-slate-700 shadow-2xl overflow-y-auto flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header do drawer */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700 bg-slate-800/80 sticky top-0 z-10">
+              <div>
+                <p className="text-xs text-slate-400 uppercase tracking-wide">Detalhe do Pedido</p>
+                <h2 className="text-lg font-semibold text-white">
+                  {drawerDetail?.external_order_id ?? (drawerLoading ? '…' : `#${drawerOrderId}`)}
+                </h2>
+              </div>
+              <button onClick={() => setDrawerOrderId(null)} className="p-2 rounded hover:bg-slate-700 text-slate-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {drawerLoading && (
+              <div className="flex-1 flex items-center justify-center py-20">
+                <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
+              </div>
+            )}
+
+            {!drawerLoading && !drawerDetail && (
+              <div className="flex-1 flex items-center justify-center py-20 text-slate-400">Erro ao carregar detalhe.</div>
+            )}
+
+            {!drawerLoading && drawerDetail && (() => {
+              const d = drawerDetail;
+              const fmt = (v: number | null | undefined) => v != null ? formatCurrency(v) : '—';
+              const fmtPct = (v: number | null | undefined) => v != null ? `${v > 0 ? '+' : ''}${v.toFixed(1)}%` : '—';
+              const statusColor = (s: string | null) =>
+                s === 'Paid' || s === 'Received' ? 'bg-emerald-900/50 text-emerald-300' :
+                s === 'Shipped' || s === 'Ordered' ? 'bg-blue-900/50 text-blue-300' :
+                s === 'Purchased' ? 'bg-amber-900/50 text-amber-300' :
+                s === 'Cancelled' ? 'bg-red-900/50 text-red-300' :
+                'bg-slate-700 text-slate-300';
+
+              return (
+                <div className="flex-1 px-6 py-4 space-y-6">
+
+                  {/* Badges de estado + margem */}
+                  <div className="flex flex-wrap gap-2 items-center">
+                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${statusColor(d.status)}`}>{d.status ?? '—'}</span>
+                    <span className="text-slate-400 text-xs">{d.marketplace_nome ?? '—'}</span>
+                    <span className="text-slate-400 text-xs">·</span>
+                    <span className="text-slate-400 text-xs">{d.customer_country ?? '—'}</span>
+                    <span className="text-slate-400 text-xs">·</span>
+                    <span className="text-slate-400 text-xs">{d.order_date ?? '—'}</span>
+                    {d.margem_pct != null && (
+                      <span className={`ml-auto px-2 py-0.5 rounded text-xs font-semibold flex items-center gap-1 ${d.margem_pct >= 10 ? 'bg-emerald-900/50 text-emerald-300' : d.margem_pct >= 0 ? 'bg-amber-900/50 text-amber-300' : 'bg-red-900/50 text-red-300'}`}>
+                        {d.margem_pct < 0 ? <TrendingDown className="w-3 h-3" /> : <TrendingUp className="w-3 h-3" />}
+                        Margem {fmtPct(d.margem_pct)}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Secção Financeira */}
+                  <section>
+                    <h3 className="text-xs uppercase tracking-wide text-slate-400 mb-2 flex items-center gap-1.5">
+                      <DollarSign className="w-3.5 h-3.5" /> Decomposição Financeira
+                    </h3>
+                    <div className="bg-slate-800/60 rounded-lg p-4 space-y-2 text-sm">
+                      <div className="flex justify-between"><span className="text-slate-400">Valor bruto</span><span className="text-slate-200 font-medium">{fmt(d.total_gross)}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-400">Comissão fixa</span><span className="text-red-400">−{fmt(d.total_commission_fixed)}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-400">Comissão %</span><span className="text-red-400">−{fmt(d.total_commission_percent)}</span></div>
+                      <div className="flex justify-between border-t border-slate-700 pt-2"><span className="text-slate-300 font-medium">Valor líquido</span><span className="text-emerald-400 font-semibold">{fmt(d.total_net_value)}</span></div>
+                      {d.custo_previsto != null && (
+                        <div className="flex justify-between"><span className="text-slate-400">Custo previsto</span><span className="text-amber-400">−{fmt(d.custo_previsto)}</span></div>
+                      )}
+                      {d.lucro_previsto != null && (
+                        <div className={`flex justify-between border-t border-slate-700 pt-2 ${d.lucro_previsto < 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                          <span className="font-medium">Lucro previsto</span>
+                          <span className="font-semibold">{fmt(d.lucro_previsto)}</span>
+                        </div>
+                      )}
+                      {(d.items_sem_mapping ?? 0) > 0 && (
+                        <p className="text-amber-400 text-xs flex items-center gap-1 pt-1">
+                          <AlertTriangle className="w-3 h-3" /> {d.items_sem_mapping} SKU(s) sem mapping — custo não calculado
+                        </p>
+                      )}
+                    </div>
+                  </section>
+
+                  {/* Secção Linhas */}
+                  {d.items.length > 0 && (
+                    <section>
+                      <h3 className="text-xs uppercase tracking-wide text-slate-400 mb-2 flex items-center gap-1.5">
+                        <Package className="w-3.5 h-3.5" /> Linhas ({d.items.length})
+                      </h3>
+                      <div className="bg-slate-800/60 rounded-lg overflow-hidden">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="border-b border-slate-700 bg-slate-800/80">
+                              <th className="text-left py-2 px-3 text-slate-400">SKU</th>
+                              <th className="text-left py-2 px-3 text-slate-400">Produto</th>
+                              <th className="text-right py-2 px-3 text-slate-400">Qty</th>
+                              <th className="text-right py-2 px-3 text-slate-400">P.Unit</th>
+                              <th className="text-right py-2 px-3 text-slate-400">Total</th>
+                              <th className="text-right py-2 px-3 text-slate-400">Custo</th>
+                              <th className="text-right py-2 px-3 text-slate-400">VAT</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {d.items.map((item) => (
+                              <tr key={item.id} className="border-b border-slate-700/50 hover:bg-slate-700/30">
+                                <td className="py-2 px-3 font-mono text-sky-400">{item.sku_marketplace ?? '—'}</td>
+                                <td className="py-2 px-3 text-slate-300">{item.nome_produto ?? item.internal_sku ?? '—'}</td>
+                                <td className="py-2 px-3 text-right text-slate-300">{item.quantity ?? '—'}</td>
+                                <td className="py-2 px-3 text-right text-slate-300">{fmt(item.unit_price)}</td>
+                                <td className="py-2 px-3 text-right text-emerald-400">{fmt(item.linha_gross)}</td>
+                                <td className="py-2 px-3 text-right text-amber-400">{item.custo_fornecedor != null ? fmt(item.custo_fornecedor) : <span className="text-slate-600">—</span>}</td>
+                                <td className="py-2 px-3 text-right text-slate-400">{item.vat_rate != null ? `${item.vat_rate}%` : '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </section>
+                  )}
+
+                  {/* Secção Compras */}
+                  {d.purchase_orders.length > 0 && (
+                    <section>
+                      <h3 className="text-xs uppercase tracking-wide text-slate-400 mb-2 flex items-center gap-1.5">
+                        <ShoppingBag className="w-3.5 h-3.5" /> Compra associada
+                      </h3>
+                      <div className="space-y-2">
+                        {d.purchase_orders.map((po) => (
+                          <div key={po.id} className="bg-slate-800/60 rounded-lg p-4">
+                            <div className="flex items-center justify-between mb-3">
+                              <div className="flex items-center gap-2">
+                                <span className="text-white font-semibold">PO #{po.id}</span>
+                                <span className={`px-2 py-0.5 rounded text-xs ${statusColor(po.status)}`}>{po.status ?? '—'}</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => { setDrawerOrderId(null); setModuloSelecionado({ id: 'compras', nome: 'Compras', icone: '🛒' }); }}
+                                className="text-xs text-sky-400 hover:text-sky-300 flex items-center gap-1"
+                              >
+                                Ver em Compras <ExternalLink className="w-3 h-3" />
+                              </button>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 text-sm">
+                              <div><span className="text-slate-400 text-xs">Fornecedor</span><p className="text-slate-200">{po.supplier_nome ?? '—'}</p></div>
+                              <div><span className="text-slate-400 text-xs">Total PO</span><p className="text-emerald-400 font-medium">{fmt(po.total_final)}</p></div>
+                              <div><span className="text-slate-400 text-xs">Fatura</span><p className={po.invoice_ref ? 'text-emerald-400' : 'text-slate-500'}>{po.invoice_ref ?? 'Sem fatura'}</p></div>
+                              <div><span className="text-slate-400 text-xs">Vencimento</span><p className="text-slate-300">{po.due_date ?? '—'}</p></div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+
+                  {/* Secção Envio */}
+                  {(d.shipping_status || d.carrier_name || d.tracking_number) && (
+                    <section>
+                      <h3 className="text-xs uppercase tracking-wide text-slate-400 mb-2 flex items-center gap-1.5">
+                        <Truck className="w-3.5 h-3.5" /> Envio
+                      </h3>
+                      <div className="bg-slate-800/60 rounded-lg p-4 grid grid-cols-2 gap-3 text-sm">
+                        <div><span className="text-slate-400 text-xs">Estado envio</span><p className="text-slate-200">{d.shipping_status ?? '—'}</p></div>
+                        <div><span className="text-slate-400 text-xs">Transportadora</span><p className="text-slate-200">{d.carrier_name ?? '—'}</p></div>
+                        <div className="col-span-2">
+                          <span className="text-slate-400 text-xs">Tracking</span>
+                          <p className="font-mono text-sky-400 text-sm">{d.tracking_number ?? '—'}</p>
+                        </div>
+                        {d.carrier_status && (
+                          <div><span className="text-slate-400 text-xs">Estado transportadora</span><p className="text-slate-200">{d.carrier_status}</p></div>
+                        )}
+                        {d.shipped_at && (
+                          <div><span className="text-slate-400 text-xs">Data expedição</span><p className="text-slate-200">{d.shipped_at}</p></div>
+                        )}
+                      </div>
+                    </section>
+                  )}
+
+                  {/* Secção Cliente */}
+                  {(d.customer_name || d.customer_nif || d.customer_address) && (
+                    <section>
+                      <h3 className="text-xs uppercase tracking-wide text-slate-400 mb-2 flex items-center gap-1.5">
+                        <User className="w-3.5 h-3.5" /> Cliente
+                      </h3>
+                      <div className="bg-slate-800/60 rounded-lg p-4 grid grid-cols-2 gap-3 text-sm">
+                        {d.customer_name && <div><span className="text-slate-400 text-xs">Nome</span><p className="text-slate-200">{d.customer_name}</p></div>}
+                        {d.customer_nif && <div><span className="text-slate-400 text-xs">NIF</span><p className="text-slate-200 font-mono">{d.customer_nif}</p></div>}
+                        {d.customer_address && <div className="col-span-2"><span className="text-slate-400 text-xs">Morada</span><p className="text-slate-200">{d.customer_address}</p></div>}
+                      </div>
+                    </section>
+                  )}
+
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}

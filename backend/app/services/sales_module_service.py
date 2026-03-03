@@ -411,9 +411,28 @@ class SalesModuleService:
                    so.status, so.customer_country, so.currency, so.total_gross,
                    so.total_commission_fixed, so.total_commission_percent, so.total_net_value,
                    m.nome AS marketplace_nome,
-                   so.shipping_status, so.carrier_name, so.tracking_number, so.carrier_status, so.shipped_at
+                   so.shipping_status, so.carrier_name, so.tracking_number, so.carrier_status, so.shipped_at,
+                   po_link.purchase_order_id, po.status AS po_status, sup.nome AS supplier_nome,
+                   marg.lucro_previsto, marg.margem_pct
             FROM sales_orders so
             LEFT JOIN marketplaces m ON m.id = so.marketplace_id
+            LEFT JOIN (
+                SELECT soi.sales_order_id, MIN(poi.purchase_order_id) AS purchase_order_id
+                FROM sales_order_items soi
+                JOIN purchase_order_items poi ON poi.sales_order_item_id = soi.id
+                GROUP BY soi.sales_order_id
+            ) po_link ON po_link.sales_order_id = so.id
+            LEFT JOIN purchase_orders po ON po.id = po_link.purchase_order_id
+            LEFT JOIN suppliers sup ON sup.id = po.supplier_id
+            LEFT JOIN (
+                SELECT sales_order_id,
+                       SUM(lucro_previsto_linha) AS lucro_previsto,
+                       CASE WHEN SUM(linha_gross) > 0
+                            THEN ROUND(SUM(lucro_previsto_linha) / SUM(linha_gross) * 100, 1)
+                            ELSE NULL END AS margem_pct
+                FROM v_rentabilidade_prevista
+                GROUP BY sales_order_id
+            ) marg ON marg.sales_order_id = so.id
             {join_proforma}
             WHERE 1=1 {where}
             ORDER BY so.order_date DESC NULLS LAST, so.id DESC
@@ -426,8 +445,105 @@ class SalesModuleService:
             "status", "customer_country", "currency", "total_gross",
             "total_commission_fixed", "total_commission_percent", "total_net_value", "marketplace_nome",
             "shipping_status", "carrier_name", "tracking_number", "carrier_status", "shipped_at",
+            "purchase_order_id", "po_status", "supplier_nome", "lucro_previsto", "margem_pct",
         ]
         return [dict(zip(cols, row)) for row in rows], int(total)
+
+    def get_order_detail(self, sales_order_id: int) -> Optional[Dict[str, Any]]:
+        """Detalhe completo de uma sales_order: header, linhas, POs associadas e margem."""
+        row = self.conn.execute(
+            """
+            SELECT so.id, so.empresa_id, so.external_order_id, so.marketplace_id, so.order_date,
+                   so.status, so.customer_country, so.currency, so.total_gross,
+                   so.total_commission_fixed, so.total_commission_percent, so.total_net_value,
+                   so.shipping_status, so.carrier_name, so.tracking_number, so.carrier_status, so.shipped_at,
+                   so.customer_name, so.customer_address, so.customer_nif,
+                   m.nome AS marketplace_nome, e.nome AS empresa_nome
+            FROM sales_orders so
+            LEFT JOIN marketplaces m ON m.id = so.marketplace_id
+            LEFT JOIN empresas e ON e.id = so.empresa_id
+            WHERE so.id = ?
+            """,
+            [sales_order_id],
+        ).fetchone()
+        if not row:
+            return None
+
+        cols = [
+            "id", "empresa_id", "external_order_id", "marketplace_id", "order_date",
+            "status", "customer_country", "currency", "total_gross",
+            "total_commission_fixed", "total_commission_percent", "total_net_value",
+            "shipping_status", "carrier_name", "tracking_number", "carrier_status", "shipped_at",
+            "customer_name", "customer_address", "customer_nif",
+            "marketplace_nome", "empresa_nome",
+        ]
+        result: Dict[str, Any] = dict(zip(cols, row))
+        result["order_date"] = str(result["order_date"])[:10] if result.get("order_date") else None
+
+        # Linhas da venda
+        item_rows = self.conn.execute(
+            """
+            SELECT soi.id, soi.sku_marketplace, soi.internal_sku, soi.quantity, soi.unit_price, soi.vat_rate,
+                   COALESCE(soi.quantity * soi.unit_price, 0) AS linha_gross,
+                   sm.nome_produto, sm.custo_fornecedor
+            FROM sales_order_items soi
+            LEFT JOIN sku_mapping sm ON sm.empresa_id = ? AND sm.sku_marketplace = soi.sku_marketplace
+                                    AND COALESCE(sm.ativo, TRUE) = TRUE
+            WHERE soi.sales_order_id = ?
+            ORDER BY soi.id
+            """,
+            [result.get("empresa_id"), sales_order_id],
+        ).fetchall()
+        item_cols = ["id", "sku_marketplace", "internal_sku", "quantity", "unit_price", "vat_rate",
+                     "linha_gross", "nome_produto", "custo_fornecedor"]
+        result["items"] = [dict(zip(item_cols, r)) for r in item_rows]
+
+        # POs associadas
+        po_rows = self.conn.execute(
+            """
+            SELECT DISTINCT po.id, po.status, po.invoice_ref, COALESCE(po.total_final, 0) AS total_final,
+                   s.nome AS supplier_nome, s.id AS supplier_id,
+                   po.data_criacao, po.due_date
+            FROM sales_order_items soi
+            JOIN purchase_order_items poi ON poi.sales_order_item_id = soi.id
+            JOIN purchase_orders po ON po.id = poi.purchase_order_id
+            LEFT JOIN suppliers s ON s.id = po.supplier_id
+            WHERE soi.sales_order_id = ?
+            ORDER BY po.id
+            """,
+            [sales_order_id],
+        ).fetchall()
+        po_cols = ["id", "status", "invoice_ref", "total_final", "supplier_nome", "supplier_id", "data_criacao", "due_date"]
+        result["purchase_orders"] = [dict(zip(po_cols, r)) for r in po_rows]
+
+        # Margem
+        try:
+            marg = self.conn.execute(
+                """
+                SELECT SUM(lucro_previsto_linha), SUM(custo_previsto_linha),
+                       SUM(CASE WHEN mapping_em_falta = 1 THEN 1 ELSE 0 END)
+                FROM v_rentabilidade_prevista WHERE sales_order_id = ?
+                """,
+                [sales_order_id],
+            ).fetchone()
+            if marg:
+                tg = float(result.get("total_gross") or 0)
+                result["lucro_previsto"] = float(marg[0] or 0)
+                result["custo_previsto"] = float(marg[1] or 0)
+                result["items_sem_mapping"] = int(marg[2] or 0)
+                result["margem_pct"] = round(result["lucro_previsto"] / tg * 100, 1) if tg > 0 else None
+            else:
+                result["lucro_previsto"] = None
+                result["custo_previsto"] = None
+                result["items_sem_mapping"] = 0
+                result["margem_pct"] = None
+        except Exception:
+            result["lucro_previsto"] = None
+            result["custo_previsto"] = None
+            result["items_sem_mapping"] = 0
+            result["margem_pct"] = None
+
+        return result
 
     def get_stats(
         self,

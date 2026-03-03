@@ -1,9 +1,12 @@
 """Endpoints do Módulo de Vendas (Sales & Orders) para Dropshipping."""
+import io
 import tempfile
 from pathlib import Path
 from fastapi import APIRouter, Depends, Query, UploadFile, File, Form, HTTPException, Body
+from fastapi.responses import StreamingResponse
 from typing import List, Optional, Any, Dict
 from pydantic import BaseModel
+import pandas as pd
 from app.services.sales_service import SalesService
 from app.services.sales_module_service import SalesModuleService
 from app.services.universal_sales_ingestor import UniversalSalesIngestor
@@ -178,6 +181,66 @@ class SalesOrderListItem(BaseModel):
     tracking_number: Optional[str] = None
     carrier_status: Optional[str] = None
     shipped_at: Optional[str] = None
+    # Enriquecimento: PO + margem
+    purchase_order_id: Optional[int] = None
+    po_status: Optional[str] = None
+    supplier_nome: Optional[str] = None
+    lucro_previsto: Optional[float] = None
+    margem_pct: Optional[float] = None
+
+
+class SalesOrderItemDetail(BaseModel):
+    id: int
+    sku_marketplace: Optional[str] = None
+    internal_sku: Optional[str] = None
+    quantity: Optional[float] = None
+    unit_price: Optional[float] = None
+    vat_rate: Optional[float] = None
+    linha_gross: Optional[float] = None
+    nome_produto: Optional[str] = None
+    custo_fornecedor: Optional[float] = None
+
+
+class SalesOrderPODetail(BaseModel):
+    id: int
+    status: Optional[str] = None
+    invoice_ref: Optional[str] = None
+    total_final: Optional[float] = None
+    supplier_nome: Optional[str] = None
+    supplier_id: Optional[int] = None
+    data_criacao: Optional[str] = None
+    due_date: Optional[str] = None
+
+
+class SalesOrderDetail(BaseModel):
+    id: int
+    empresa_id: Optional[int] = None
+    empresa_nome: Optional[str] = None
+    external_order_id: Optional[str] = None
+    marketplace_id: Optional[int] = None
+    marketplace_nome: Optional[str] = None
+    order_date: Optional[str] = None
+    status: Optional[str] = None
+    customer_country: Optional[str] = None
+    currency: Optional[str] = None
+    total_gross: Optional[float] = None
+    total_commission_fixed: Optional[float] = None
+    total_commission_percent: Optional[float] = None
+    total_net_value: Optional[float] = None
+    shipping_status: Optional[str] = None
+    carrier_name: Optional[str] = None
+    tracking_number: Optional[str] = None
+    carrier_status: Optional[str] = None
+    shipped_at: Optional[str] = None
+    customer_name: Optional[str] = None
+    customer_address: Optional[str] = None
+    customer_nif: Optional[str] = None
+    lucro_previsto: Optional[float] = None
+    custo_previsto: Optional[float] = None
+    margem_pct: Optional[float] = None
+    items_sem_mapping: Optional[int] = None
+    items: List[SalesOrderItemDetail] = []
+    purchase_orders: List[SalesOrderPODetail] = []
 
 
 class SalesListModuleResponse(BaseModel):
@@ -310,10 +373,124 @@ async def sales_list(
                 tracking_number=r.get("tracking_number"),
                 carrier_status=r.get("carrier_status"),
                 shipped_at=str(r["shipped_at"]) if r.get("shipped_at") else None,
+                purchase_order_id=r.get("purchase_order_id"),
+                po_status=r.get("po_status"),
+                supplier_nome=r.get("supplier_nome"),
+                lucro_previsto=r.get("lucro_previsto"),
+                margem_pct=r.get("margem_pct"),
             )
             for r in items
         ]
         return SalesListModuleResponse(items=out, total=total, limit=limit, offset=offset)
+    finally:
+        service.close()
+
+
+@router.get("/orders/{sales_order_id}", response_model=SalesOrderDetail)
+async def sales_order_detail(
+    sales_order_id: int,
+    service: SalesModuleService = Depends(get_sales_module_service),
+):
+    """Detalhe completo de uma sales_order: linhas, POs associadas, margem e info de cliente."""
+    try:
+        detail = service.get_order_detail(sales_order_id)
+        if not detail:
+            raise HTTPException(status_code=404, detail="Order não encontrada.")
+        return SalesOrderDetail(
+            id=detail["id"],
+            empresa_id=detail.get("empresa_id"),
+            empresa_nome=detail.get("empresa_nome"),
+            external_order_id=detail.get("external_order_id"),
+            marketplace_id=detail.get("marketplace_id"),
+            marketplace_nome=detail.get("marketplace_nome"),
+            order_date=detail.get("order_date"),
+            status=detail.get("status"),
+            customer_country=detail.get("customer_country"),
+            currency=detail.get("currency"),
+            total_gross=detail.get("total_gross"),
+            total_commission_fixed=detail.get("total_commission_fixed"),
+            total_commission_percent=detail.get("total_commission_percent"),
+            total_net_value=detail.get("total_net_value"),
+            shipping_status=detail.get("shipping_status"),
+            carrier_name=detail.get("carrier_name"),
+            tracking_number=detail.get("tracking_number"),
+            carrier_status=detail.get("carrier_status"),
+            shipped_at=str(detail["shipped_at"])[:10] if detail.get("shipped_at") else None,
+            customer_name=detail.get("customer_name"),
+            customer_address=detail.get("customer_address"),
+            customer_nif=detail.get("customer_nif"),
+            lucro_previsto=detail.get("lucro_previsto"),
+            custo_previsto=detail.get("custo_previsto"),
+            margem_pct=detail.get("margem_pct"),
+            items_sem_mapping=detail.get("items_sem_mapping", 0),
+            items=[SalesOrderItemDetail(**i) for i in detail.get("items", [])],
+            purchase_orders=[SalesOrderPODetail(**p) for p in detail.get("purchase_orders", [])],
+        )
+    finally:
+        service.close()
+
+
+@router.get("/export")
+async def sales_export(
+    empresa_id: Optional[int] = Query(None),
+    marketplace_id: Optional[int] = Query(None),
+    customer_country: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    data_inicio: Optional[str] = Query(None),
+    data_fim: Optional[str] = Query(None),
+    ids: Optional[str] = Query(None, description="IDs separados por vírgula (opcional, para exportar seleção)"),
+    service: SalesModuleService = Depends(get_sales_module_service),
+):
+    """Exporta sales_orders para Excel (.xlsx). Se ids fornecido, exporta apenas esses."""
+    try:
+        items, _ = service.list_sales(
+            empresa_id=empresa_id,
+            marketplace_id=marketplace_id,
+            customer_country=customer_country,
+            status=status,
+            data_inicio=data_inicio,
+            data_fim=data_fim,
+            limit=5000,
+            offset=0,
+        )
+        if ids:
+            id_set = {int(x) for x in ids.split(",") if x.strip().isdigit()}
+            items = [r for r in items if r["id"] in id_set]
+
+        rows = []
+        for r in items:
+            rows.append({
+                "Pedido": r.get("external_order_id") or f"#{r['id']}",
+                "Canal": r.get("marketplace_nome") or "",
+                "Data": str(r.get("order_date") or "")[:10],
+                "País": r.get("customer_country") or "",
+                "Estado": r.get("status") or "",
+                "Bruto (€)": r.get("total_gross"),
+                "Comissão Fixa (€)": r.get("total_commission_fixed"),
+                "Comissão % (€)": r.get("total_commission_percent"),
+                "Líquido (€)": r.get("total_net_value"),
+                "Lucro Previsto (€)": r.get("lucro_previsto"),
+                "Margem (%)": r.get("margem_pct"),
+                "PO #": r.get("purchase_order_id"),
+                "Estado PO": r.get("po_status") or "",
+                "Fornecedor": r.get("supplier_nome") or "",
+                "Estado Envio": r.get("shipping_status") or "",
+                "Transportadora": r.get("carrier_name") or "",
+                "Tracking": r.get("tracking_number") or "",
+                "Estado Transportadora": r.get("carrier_status") or "",
+            })
+
+        df = pd.DataFrame(rows)
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+            df.to_excel(writer, index=False, sheet_name="Vendas")
+        buf.seek(0)
+        filename = f"vendas_export.xlsx"
+        return StreamingResponse(
+            buf,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
     finally:
         service.close()
 

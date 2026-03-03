@@ -75,6 +75,65 @@ export interface SalesOrderListItem {
   tracking_number?: string | null;
   carrier_status?: string | null;
   shipped_at?: string | null;
+  purchase_order_id?: number | null;
+  po_status?: string | null;
+  supplier_nome?: string | null;
+  lucro_previsto?: number | null;
+  margem_pct?: number | null;
+}
+
+export interface SalesOrderItemDetail {
+  id: number;
+  sku_marketplace: string | null;
+  internal_sku: string | null;
+  quantity: number | null;
+  unit_price: number | null;
+  vat_rate: number | null;
+  linha_gross: number | null;
+  nome_produto: string | null;
+  custo_fornecedor: number | null;
+}
+
+export interface SalesOrderPODetail {
+  id: number;
+  status: string | null;
+  invoice_ref: string | null;
+  total_final: number | null;
+  supplier_nome: string | null;
+  supplier_id: number | null;
+  data_criacao: string | null;
+  due_date: string | null;
+}
+
+export interface SalesOrderDetail {
+  id: number;
+  empresa_id: number | null;
+  empresa_nome: string | null;
+  external_order_id: string | null;
+  marketplace_id: number | null;
+  marketplace_nome: string | null;
+  order_date: string | null;
+  status: string | null;
+  customer_country: string | null;
+  currency: string | null;
+  total_gross: number | null;
+  total_commission_fixed: number | null;
+  total_commission_percent: number | null;
+  total_net_value: number | null;
+  shipping_status: string | null;
+  carrier_name: string | null;
+  tracking_number: string | null;
+  carrier_status: string | null;
+  shipped_at: string | null;
+  customer_name: string | null;
+  customer_address: string | null;
+  customer_nif: string | null;
+  lucro_previsto: number | null;
+  custo_previsto: number | null;
+  margem_pct: number | null;
+  items_sem_mapping: number | null;
+  items: SalesOrderItemDetail[];
+  purchase_orders: SalesOrderPODetail[];
 }
 
 export interface SalesListModuleResponse {
@@ -220,6 +279,34 @@ export const salesApi = {
     if (params.empresa_id != null) search.append('empresa_id', String(params.empresa_id));
     search.append('limit', String(params.limit ?? 100));
     const { data } = await apiClient.get<RecentWithMarginItem[]>(`/api/v1/sales/recent-with-margin?${search.toString()}`);
+    return data;
+  },
+
+  /** Detalhe completo de uma sales_order */
+  getOrderDetail: async (salesOrderId: number): Promise<SalesOrderDetail> => {
+    const { data } = await apiClient.get<SalesOrderDetail>(`/api/v1/sales/orders/${salesOrderId}`);
+    return data;
+  },
+
+  /** Exporta vendas para Excel */
+  exportSales: async (params: {
+    empresa_id?: number;
+    marketplace_id?: number;
+    customer_country?: string;
+    status?: string;
+    data_inicio?: string;
+    data_fim?: string;
+    ids?: number[];
+  }): Promise<Blob> => {
+    const search = new URLSearchParams();
+    if (params.empresa_id != null) search.append('empresa_id', String(params.empresa_id));
+    if (params.marketplace_id != null) search.append('marketplace_id', String(params.marketplace_id));
+    if (params.customer_country) search.append('customer_country', params.customer_country);
+    if (params.status) search.append('status', params.status);
+    if (params.data_inicio) search.append('data_inicio', params.data_inicio);
+    if (params.data_fim) search.append('data_fim', params.data_fim);
+    if (params.ids && params.ids.length > 0) search.append('ids', params.ids.join(','));
+    const { data } = await apiClient.get<Blob>(`/api/v1/sales/export?${search.toString()}`, { responseType: 'blob' });
     return data;
   },
 
