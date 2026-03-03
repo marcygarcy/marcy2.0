@@ -26,6 +26,14 @@ class Settings(BaseSettings):
     # Chave mestra para encriptar senhas em supplier_access (variável de ambiente SUPPLIER_ACCESS_SECRET)
     supplier_access_secret: str = ""
 
+    # SMTP — configuração de email para contestação de faturas
+    # Pode ser sobreposto em runtime via system_settings (BD) sem reiniciar o servidor
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+
     class Config:
         env_file = ".env"
         case_sensitive = False

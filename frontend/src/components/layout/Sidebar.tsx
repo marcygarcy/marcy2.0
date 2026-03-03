@@ -7,8 +7,9 @@ import { marketplacesApi, Marketplace } from '@/lib/api/marketplaces';
 import {
   Building2, ChevronDown, ChevronRight, Store, CreditCard, FolderOpen,
   Users, TrendingUp, ShoppingCart, Landmark, MapPin, Package, RotateCcw,
-  Boxes, DollarSign, Zap, Globe, Link2, FileText, BookOpen,
+  Boxes, DollarSign, Zap, Globe, Link2, FileText, BookOpen, Settings2,
 } from 'lucide-react';
+import { invoiceValidationApi } from '@/lib/api/invoiceValidation';
 
 // ─── Hardcoded data ────────────────────────────────────────────────────────────
 
@@ -85,6 +86,7 @@ const MODULO_BANCOS       = { id: 'bancos',                   nome: 'Bancos',   
 const MODULO_FINANCAS     = { id: 'financas',                 nome: 'Finanças Globais',    icone: 'DollarSign' };
 const MODULO_DADOS_MESTRES = { id: 'dados-mestres',           nome: 'Dados Mestres',       icone: 'FolderOpen' };
 const MODULO_AUTOMATION   = { id: 'automation',              nome: 'Status de Automação', icone: 'Zap' };
+const MODULO_SYSTEM_CFG   = { id: 'system-config',           nome: 'Configuração Sistema', icone: 'Settings2' };
 const MODULO_DOCS         = { id: 'documentacao',            nome: 'Documentação',        icone: 'BookOpen' };
 
 // ─── Section header component ─────────────────────────────────────────────────
@@ -161,9 +163,18 @@ export function Sidebar() {
   const [expandedBancos, setExpandedBancos] = useState(true);
   // Dados Mestres sub-tree
   const [expandedDadosMestres, setExpandedDadosMestres] = useState(true);
+  // Badge Finanças Globais (faturas pendentes de validação)
+  const [invoiceBadge, setInvoiceBadge] = useState(0);
 
   useEffect(() => {
     loadEmpresas();
+    // Carregar badge de faturas pendentes
+    invoiceValidationApi.getStats().then((s) => setInvoiceBadge(s.pendente_validacao)).catch(() => {});
+    // Refrescar a cada 5 minutos
+    const t = setInterval(() => {
+      invoiceValidationApi.getStats().then((s) => setInvoiceBadge(s.pendente_validacao)).catch(() => {});
+    }, 5 * 60 * 1000);
+    return () => clearInterval(t);
   }, []);
 
   useEffect(() => {
@@ -439,14 +450,21 @@ export function Sidebar() {
             )}
           </div>
 
-          {/* Finanças Globais */}
-          <NavItem
-            icon={<DollarSign className="w-4 h-4 shrink-0" />}
-            label="Finanças Globais"
-            active={isActive(MODULO_FINANCAS.id)}
-            activeColor="bg-emerald-600 text-white"
+          {/* Finanças Globais (com badge de faturas pendentes) */}
+          <div
             onClick={() => setModuloSelecionado(MODULO_FINANCAS)}
-          />
+            className={`w-full flex items-center px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer ${
+              isActive(MODULO_FINANCAS.id) ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+            }`}
+          >
+            <DollarSign className="w-4 h-4 shrink-0" />
+            <span className="truncate ml-2">Finanças Globais</span>
+            {invoiceBadge > 0 && (
+              <span className="ml-auto bg-rose-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold">
+                {invoiceBadge > 99 ? '99+' : invoiceBadge}
+              </span>
+            )}
+          </div>
         </div>
       )}
 
@@ -510,6 +528,15 @@ export function Sidebar() {
             active={isActive(MODULO_AUTOMATION.id)}
             activeColor="bg-purple-600 text-white"
             onClick={() => setModuloSelecionado(MODULO_AUTOMATION)}
+          />
+
+          {/* Configuração Sistema (SMTP, etc.) */}
+          <NavItem
+            icon={<Settings2 className="w-4 h-4 shrink-0" />}
+            label="Configuração Sistema"
+            active={isActive(MODULO_SYSTEM_CFG.id)}
+            activeColor="bg-slate-600 text-white"
+            onClick={() => setModuloSelecionado(MODULO_SYSTEM_CFG)}
           />
         </div>
       )}

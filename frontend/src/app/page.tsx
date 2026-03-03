@@ -20,6 +20,7 @@ import { MarketplacesMasterView } from '@/components/master/MarketplacesMasterVi
 import { EscritoriosMasterView } from '@/components/master/EscritoriosMasterView';
 import { TaxMatrixView } from '@/components/master/TaxMatrixView';
 import { SkuBridgeView } from '@/components/master/SkuBridgeView';
+import { SystemConfigView } from '@/components/master/SystemConfigView';
 import { AutomationStatusPage } from '@/components/automation/AutomationStatusPage';
 import { FinanceGlobalView } from '@/components/finance/FinanceGlobalView';
 import { OfficeLogisticsView } from '@/components/logistics/OfficeLogisticsView';
@@ -117,6 +118,7 @@ export default function Home() {
   const isModuloBilling = moduloSelecionado?.id === 'billing';
   const isModuloOfficeStock = moduloSelecionado?.id === 'office-stock';
   const isModuloDocs = moduloSelecionado?.id === 'documentacao';
+  const isModuloSystemConfig = moduloSelecionado?.id === 'system-config';
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white flex">
@@ -156,6 +158,8 @@ export default function Home() {
           <OfficeStockView />
         ) : isModuloDocs ? (
           <DocsView />
+        ) : isModuloSystemConfig ? (
+          <SystemConfigView />
         ) : (
         <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>

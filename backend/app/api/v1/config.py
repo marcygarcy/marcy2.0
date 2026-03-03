@@ -1,8 +1,11 @@
-"""Endpoints de Configuração: Tabela de IVA OSS e Mapping Cross-SKU."""
+"""Endpoints de Configuração: Tabela de IVA OSS, Mapping Cross-SKU e SMTP."""
+import smtplib
+from email.mime.text import MIMEText
 from fastapi import APIRouter, Query, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List
 from app.config.database import get_db_connection
+from app.config.settings import get_settings
 
 router = APIRouter(prefix="/config", tags=["config"])
 
@@ -162,3 +165,114 @@ def delete_sku_bridge(item_id: int):
         return {"message": "Mapeamento eliminado"}
     finally:
         conn.close()
+
+
+# ─── SMTP Configuration ──────────────────────────────────────────────────────
+
+_SMTP_KEYS = ["smtp_host", "smtp_port", "smtp_user", "smtp_password", "smtp_from"]
+
+
+class SmtpConfigBody(BaseModel):
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: Optional[str] = None   # None = não alterar a password guardada
+    smtp_from: str = ""
+
+
+class SmtpTestBody(BaseModel):
+    test_email: str
+
+
+def _read_smtp_from_db(conn) -> dict:
+    rows = conn.execute(
+        "SELECT key, value FROM system_settings WHERE key LIKE 'smtp_%'"
+    ).fetchall()
+    return {r[0]: r[1] for r in rows if r[1]}
+
+
+@router.get("/smtp")
+def get_smtp():
+    """Lê configuração SMTP (sem devolver a password — apenas indica se está definida)."""
+    s = get_settings()
+    conn = get_db_connection()
+    try:
+        db_cfg = _read_smtp_from_db(conn)
+    finally:
+        conn.close()
+
+    return {
+        "smtp_host": db_cfg.get("smtp_host") or s.smtp_host,
+        "smtp_port": int(db_cfg.get("smtp_port") or s.smtp_port or 587),
+        "smtp_user": db_cfg.get("smtp_user") or s.smtp_user,
+        "smtp_from": db_cfg.get("smtp_from") or s.smtp_from,
+        "smtp_password_set": bool(db_cfg.get("smtp_password") or s.smtp_password),
+    }
+
+
+@router.post("/smtp")
+def save_smtp(body: SmtpConfigBody):
+    """Grava configuração SMTP em system_settings."""
+    conn = get_db_connection()
+    try:
+        updates = {
+            "smtp_host": body.smtp_host,
+            "smtp_port": str(body.smtp_port),
+            "smtp_user": body.smtp_user,
+            "smtp_from": body.smtp_from,
+        }
+        if body.smtp_password is not None:
+            updates["smtp_password"] = body.smtp_password
+
+        for key, value in updates.items():
+            existing = conn.execute(
+                "SELECT key FROM system_settings WHERE key = ?", [key]
+            ).fetchone()
+            if existing:
+                conn.execute(
+                    "UPDATE system_settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE key = ?",
+                    [value, key],
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO system_settings (key, value) VALUES (?, ?)",
+                    [key, value],
+                )
+        conn.commit()
+        return {"ok": True, "message": "Configuração SMTP guardada"}
+    finally:
+        conn.close()
+
+
+@router.post("/smtp/test")
+def test_smtp(body: SmtpTestBody):
+    """Envia email de teste para o endereço indicado."""
+    s = get_settings()
+    conn = get_db_connection()
+    try:
+        db_cfg = _read_smtp_from_db(conn)
+    finally:
+        conn.close()
+
+    host     = db_cfg.get("smtp_host") or s.smtp_host
+    port     = int(db_cfg.get("smtp_port") or s.smtp_port or 587)
+    user     = db_cfg.get("smtp_user") or s.smtp_user
+    password = db_cfg.get("smtp_password") or s.smtp_password
+    from_    = db_cfg.get("smtp_from") or s.smtp_from or user
+
+    if not host or not user:
+        return {"success": False, "error": "SMTP não configurado — preencha Host e Utilizador"}
+
+    try:
+        msg = MIMEText("Teste de ligação SMTP do ERP Hub Sales. Se recebeu este email, a configuração está correcta.", "plain", "utf-8")
+        msg["Subject"] = "Teste SMTP — ERP Hub Sales"
+        msg["From"]    = from_
+        msg["To"]      = body.test_email
+        with smtplib.SMTP(host, port, timeout=10) as srv:
+            srv.ehlo()
+            srv.starttls()
+            srv.login(user, password)
+            srv.sendmail(from_, [body.test_email], msg.as_string())
+        return {"success": True}
+    except Exception as e:
+        return {"success": False, "error": str(e)}

@@ -17,6 +17,39 @@ Actualizado sempre que uma nova funcionalidade é entregue.
 
 ---
 
+### F-004 · Validação de Faturas + NE Fornecedor + Configuração SMTP
+
+**Data:** 2026-03-03
+**Módulo:** C · Financeiro (Finanças Globais — tab "Faturas por Validar"); D · Configuração (Configuração Sistema); Compras (coluna NE)
+
+#### O que foi feito
+
+| # | Funcionalidade | Detalhe |
+|---|---|---|
+| 1 | **Quarentena de faturas** | O robot de automação deixa de criar lançamentos directos na conta corrente. As faturas detectadas passam para `supplier_invoices` com `status='pendente_validacao'` e são listadas no Inbox de Validação. |
+| 2 | **Inbox de Validação** | Nova tab "Faturas por Validar" em Finanças Globais: tabela (Fornecedor, NE Forn., Nº Fatura, Data, Val.Fat, Val.PO, Δ, PDF, Estado, Ações). Acções: Aprovar, Aprovar c/ nota, Contestar, Aguardar. Drawer de detalhe com histórico de comunicações e nota interna. |
+| 3 | **Aprovação manual** | Ao aprovar (com ou sem nota), o sistema cria o lançamento na conta corrente (`supplier_ledger`) — única forma de entrada no ledger. Sem aprovação automática. |
+| 4 | **Contestação por email** | Modal "Contestar" com template editável; envio via SMTP (se configurado) ou fallback `mailto:`. Registo em `supplier_invoice_comms` e estado `contestada`. |
+| 5 | **NE Fornecedor** | Campo `supplier_order_id` (NE do fornecedor) em `purchase_orders`; coluna "Nº Enc. Forn." / "NE Fornecedor" nas tabelas de POs no frontend (ComprasView, InvoiceInboxView). |
+| 6 | **Configuração SMTP** | Novo módulo "Configuração Sistema" (Pilar D): formulário SMTP (Host, Porta, User, Password, From), guardar em `system_settings`, botão "Testar ligação". |
+| 7 | **Badge na Sidebar** | Contador de faturas pendentes de validação no item "Finanças Globais". |
+| 8 | **Modal Registar Fatura** | POs que já têm fatura associada (em `supplier_invoices` por `purchase_order_id` ou em `supplier_invoice_pos`) não aparecem na listagem do modal. |
+
+#### Ficheiros alterados / criados
+
+**Backend:**  
+`database.py` (migrações: `supplier_order_id`, `invoice_pdf_url` em PO; expansão `supplier_invoices`; `supplier_invoice_comms`, `system_settings`); `settings.py` + `.env.example` (SMTP); `automation_service.py` (`_queue_invoices_for_validation`); `invoice_validation_service.py` (novo); `invoice_validation.py` (novo); `config.py` (GET/POST `/config/smtp`, POST `/config/smtp/test`); `invoice_service.py` (exclusão por `supplier_invoices` e `supplier_invoice_pos` em `get_open_pos_for_supplier`); `main.py` (router invoice_validation).
+
+**Frontend:**  
+`invoiceValidation.ts` (novo); `config.ts` (getSmtp, saveSmtp, testSmtp); `InvoiceInboxView.tsx` (novo); `SystemConfigView.tsx` (novo); `FinanceGlobalView.tsx` (tab Faturas por Validar); `Sidebar.tsx` (badge, item Configuração Sistema); `ComprasView.tsx` (coluna NE já presente); `page.tsx` (routing SystemConfigView).
+
+#### Observações
+
+- Aprovação é sempre manual; não há NC automática ao contestar nem delegação automática por valor.
+- Se SMTP não estiver configurado, a contestação usa link `mailto:` com corpo pré-preenchido.
+
+---
+
 ### F-003 · Sales Explorer — Drawer, Badge PO, Margem, Quick Actions, Export Excel
 
 **Data:** 2026-03-03
@@ -83,7 +116,7 @@ Cinco melhorias integradas no Sales Explorer para ligar visualmente vendas às c
 
 **Problema:** O modal de "Registar Fatura" listava todas as POs do fornecedor, incluindo as que já tinham uma fatura registada (`invoice_ref` preenchido).
 
-**Solução:** Adicionada condição SQL `(po.invoice_ref IS NULL OR po.invoice_ref = '')` na query de `get_open_pos_for_supplier()`.
+**Solução:** Adicionada condição SQL `(po.invoice_ref IS NULL OR po.invoice_ref = '')` na query de `get_open_pos_for_supplier()`. Complementarmente (F-004), passou a excluir também POs que já constem em `supplier_invoices` (por `purchase_order_id`) ou em `supplier_invoice_pos`.
 
 **Observações:** *(Sem observações.)*
 

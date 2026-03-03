@@ -1372,6 +1372,73 @@ def init_database():
     except Exception:
         pass
 
+    # ── Migrações Fase 6: NE + Invoice Validation + SMTP Settings ────────────
+
+    # purchase_orders: supplier_order_id + invoice_pdf_url (os outros já existem)
+    try:
+        r = conn.execute("DESCRIBE purchase_orders").fetchall()
+        cols_po6 = [c[0] for c in r]
+        for col, ctype in [
+            ("supplier_order_id", "TEXT"),
+            ("invoice_pdf_url",   "TEXT"),
+        ]:
+            if col not in cols_po6:
+                conn.execute(f"ALTER TABLE purchase_orders ADD COLUMN {col} {ctype}")
+    except Exception:
+        pass
+
+    # supplier_invoices: ampliar com campos de validação
+    try:
+        r = conn.execute("DESCRIBE supplier_invoices").fetchall()
+        cols_si = [c[0] for c in r]
+        for col, ctype in [
+            ("purchase_order_id",  "INTEGER"),
+            ("supplier_order_id",  "TEXT"),
+            ("valor_fatura",       "DOUBLE"),
+            ("valor_po",           "DOUBLE"),
+            ("diferenca",          "DOUBLE"),
+            ("flag_divergencia",   "BOOLEAN DEFAULT FALSE"),
+            ("invoice_pdf_url",    "TEXT"),
+            ("source",             "TEXT DEFAULT 'manual'"),
+            ("aprovado_por",       "TEXT"),
+            ("aprovado_em",        "TIMESTAMP"),
+            ("nota_aprovacao",     "TEXT"),
+            ("invoice_date",       "DATE"),
+            ("data_atualizacao",   "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
+        ]:
+            if col not in cols_si:
+                conn.execute(f"ALTER TABLE supplier_invoices ADD COLUMN {col} {ctype}")
+        # status precisa suportar novos valores — já existe, não alteramos o tipo
+    except Exception:
+        pass
+
+    # supplier_invoice_comms: histórico de emails e notas
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS supplier_invoice_comms (
+            id          INTEGER PRIMARY KEY,
+            invoice_id  INTEGER NOT NULL,
+            data_envio  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            tipo        TEXT NOT NULL,
+            para_email  TEXT,
+            assunto     TEXT,
+            corpo       TEXT,
+            enviado_por TEXT
+        )
+    """)
+    try:
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_inv_comms_invoice ON supplier_invoice_comms(invoice_id)")
+    except Exception:
+        pass
+
+    # system_settings: configurações globais (chave-valor) — ex: SMTP
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS system_settings (
+            key        TEXT PRIMARY KEY,
+            value      TEXT,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
     conn.commit()
     conn.close()
     print(f"Base de dados inicializada: {DB_PATH}")

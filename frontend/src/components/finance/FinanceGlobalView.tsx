@@ -7,8 +7,10 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   AreaChart, Area, Cell,
 } from 'recharts';
-import { Loader2, TrendingUp, AlertTriangle, DollarSign, Scale, Clock, BookOpen, CheckCircle, Activity, Shield, FileText, ExternalLink, Wallet, CreditCard, Receipt, FileDown, Printer } from 'lucide-react';
+import { Loader2, TrendingUp, AlertTriangle, DollarSign, Scale, Clock, BookOpen, CheckCircle, Activity, Shield, FileText, ExternalLink, Wallet, CreditCard, Receipt, FileDown, Printer, Inbox } from 'lucide-react';
 import { financeApi, type AgingRow, type ProfitabilityData, type CashFlowDay, type CashFlowProjectionDay, type LedgerLine, type LedgerExtractResponse, type DiscrepancyRow, type SupplierHealthRow, type PaymentSuggestionItem, type PaymentHistoricoItem, type ConfirmPaymentRequest, type OpenPoForInvoice, type CreateInvoiceRequest } from '@/lib/api/finance';
+import { invoiceValidationApi, type InvoiceValidationStats } from '@/lib/api/invoiceValidation';
+import InvoiceInboxView from '@/components/finance/InvoiceInboxView';
 import { purchasesApi, type PurchaseOrderWithInvoiceStatus } from '@/lib/api/purchases';
 import { empresasApi, type Empresa } from '@/lib/api/empresas';
 import { useApp } from '@/context/AppContext';
@@ -1995,6 +1997,11 @@ export function FinanceGlobalView() {
   const empresaId = empresaSelecionada?.id ?? undefined;
   const [activeTab, setActiveTab] = useState('aging');
   const [ledgerPreselectSupplierId, setLedgerPreselectSupplierId] = useState<number | null>(null);
+  const [invoiceStats, setInvoiceStats] = useState<InvoiceValidationStats | null>(null);
+
+  useEffect(() => {
+    invoiceValidationApi.getStats(empresaId).then(setInvoiceStats).catch(() => {});
+  }, [empresaId]);
 
   useEffect(() => {
     if (!financasNavigation) return;
@@ -2051,6 +2058,15 @@ export function FinanceGlobalView() {
           <TabsTrigger value="pagamentos" className="data-[state=active]:bg-amber-600 data-[state=active]:text-white">
             <Wallet className="w-4 h-4 mr-1.5" />Pagamentos
           </TabsTrigger>
+          <TabsTrigger value="faturas_validar" className="data-[state=active]:bg-rose-600 data-[state=active]:text-white">
+            <Inbox className="w-4 h-4 mr-1.5" />
+            Faturas por Validar
+            {invoiceStats && invoiceStats.pendente_validacao > 0 && (
+              <span className="ml-1.5 bg-rose-500 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold">
+                {invoiceStats.pendente_validacao}
+              </span>
+            )}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="aging" className="mt-6">
@@ -2079,6 +2095,9 @@ export function FinanceGlobalView() {
         </TabsContent>
         <TabsContent value="pagamentos" className="mt-6">
           <PaymentsView empresaId={empresaId} />
+        </TabsContent>
+        <TabsContent value="faturas_validar" className="mt-6">
+          <InvoiceInboxView empresaId={empresaId} />
         </TabsContent>
       </Tabs>
     </div>

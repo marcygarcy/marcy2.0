@@ -109,44 +109,60 @@ def _load_prices_from_temp_scrapes(supplier_id: int) -> Optional[List[Dict[str, 
         return None
 
 
-def _auto_ledger_for_invoices(supplier_id: int) -> None:
+def _queue_invoices_for_validation(supplier_id: int) -> None:
     """
-    Fase 5: Após o robô descarregar faturas, cria automaticamente lançamentos
-    de Crédito na supplier_ledger para as POs que passaram a ter invoice_pdf_url
-    mas ainda não têm entrada de Fatura no ledger.
+    Fase 6: Em vez de criar lançamento ledger automaticamente, coloca as faturas
+    em quarentena em supplier_invoices com status='pendente_validacao'.
+    O utilizador valida manualmente no Inbox de Faturas (Finanças Globais).
+    Apenas na aprovação manual é que o lançamento vai para supplier_ledger.
     """
     try:
-        acct = AccountingMatchService()
-        conn = acct.conn
+        conn = get_db_connection()
         rows = conn.execute(
             """
             SELECT po.id, po.empresa_id, po.supplier_id, po.total_final,
-                   po.invoice_pdf_url, po.invoice_ref
+                   po.invoice_pdf_url, po.invoice_ref, po.invoice_amount,
+                   po.supplier_order_id
             FROM purchase_orders po
             WHERE po.supplier_id = ?
               AND po.invoice_pdf_url IS NOT NULL
               AND NOT EXISTS (
-                  SELECT 1 FROM supplier_ledger sl
-                  WHERE sl.purchase_order_id = po.id AND sl.tipo = 'Fatura'
+                  SELECT 1 FROM supplier_invoices si
+                  WHERE si.purchase_order_id = po.id
               )
             """,
             [supplier_id],
         ).fetchall()
-        for po_id, eid, sid, total, pdf_url, inv_ref in rows:
-            if eid and sid:
-                acct.create_ledger_entry(
-                    empresa_id=eid,
-                    supplier_id=sid,
-                    tipo="Fatura",
-                    valor_credito=float(total or 0),
-                    documento_ref=inv_ref or pdf_url,
-                    purchase_order_id=po_id,
-                    notas="Fatura registada automaticamente pelo robô (Fase 4)",
-                )
-                logger.info("Fase5 ledger: Fatura criada para PO #%s (supplier %s)", po_id, sid)
-        acct.close()
+
+        queued = 0
+        for (po_id, eid, sid, total_po, pdf_url, inv_ref, inv_amount, sup_ord_id) in rows:
+            if not (eid and sid and inv_ref):
+                continue
+            valor_fat = float(inv_amount or total_po or 0)
+            valor_po  = float(total_po or 0)
+            diferenca = round(valor_fat - valor_po, 2)
+            next_id   = conn.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM supplier_invoices").fetchone()[0]
+            conn.execute(
+                """
+                INSERT INTO supplier_invoices
+                  (id, empresa_id, supplier_id, purchase_order_id, supplier_order_id,
+                   invoice_ref, valor_fatura, valor_po, diferenca, flag_divergencia,
+                   invoice_pdf_url, status, source)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                [next_id, eid, sid, po_id, sup_ord_id,
+                 inv_ref, valor_fat, valor_po, diferenca,
+                 abs(diferenca) > 0.01, pdf_url, "pendente_validacao", "robot"],
+            )
+            queued += 1
+            logger.info("Fase6 queue: Fatura %s (PO #%s) em quarentena para validação", inv_ref, po_id)
+
+        if queued:
+            conn.commit()
+            logger.info("Fase6 queue: %d fatura(s) em espera de validação (supplier %s)", queued, supplier_id)
+        conn.close()
     except Exception as e:
-        logger.warning("_auto_ledger_for_invoices erro: %s", e)
+        logger.warning("_queue_invoices_for_validation erro: %s", e)
 
 
 def _run_supplier_sync(
@@ -214,12 +230,12 @@ def _run_supplier_sync(
                     _log_sync(supplier_id, "Tracking", "success", f"Trackings capturados: {t}", t, duration_seconds=dur)
                 if auto_invoices:
                     _log_sync(supplier_id, "Invoices", "success", f"Faturas: {i}", i, duration_seconds=dur)
-                    # Fase 5: auto-criar lançamentos na conta corrente para POs com nova fatura
+                    # Fase 6: colocar faturas em quarentena para validação manual (não auto-ledger)
                     if i > 0:
                         try:
-                            _auto_ledger_for_invoices(supplier_id)
+                            _queue_invoices_for_validation(supplier_id)
                         except Exception as le:
-                            logger.warning("Fase5 auto_ledger erro: %s", le)
+                            logger.warning("Fase6 queue_invoices erro: %s", le)
         except Exception as e:
             logger.exception("Order/Invoice sync supplier %s: %s", supplier_id, e)
             _log_sync(supplier_id, "trackings_invoices", "error", str(e), duration_seconds=round(time.time() - t0, 2))

@@ -830,12 +830,12 @@ export function ComprasView() {
 
                 <div className="flex flex-wrap items-end gap-4 pt-4">
                   <label className="flex flex-col gap-1">
-                    <span className="text-slate-400 text-sm">ID encomenda no fornecedor</span>
+                    <span className="text-slate-400 text-sm">Nº NE no fornecedor</span>
                     <input
                       type="text"
                       value={supplierOrderIdInput}
                       onChange={(e) => setSupplierOrderIdInput(e.target.value)}
-                      placeholder="Ex: 12345"
+                      placeholder="Ex: ES-12345"
                       className="w-48 bg-slate-800 border border-slate-600 rounded px-3 py-2 text-white text-sm"
                     />
                   </label>
@@ -1182,6 +1182,7 @@ export function ComprasView() {
                         <th className="text-left py-2 px-2 text-slate-300 font-semibold">PO</th>
                         <th className="text-left py-2 px-2 text-slate-300 font-semibold">Empresa</th>
                         <th className="text-left py-2 px-2 text-slate-300 font-semibold">Fornecedor</th>
+                        <th className="text-left py-2 px-2 text-slate-300 font-semibold">NE Fornecedor</th>
                         <th className="text-right py-2 px-2 text-slate-300 font-semibold">Total</th>
                         <th className="text-right py-2 px-2 text-slate-300 font-semibold">Ação</th>
                       </tr>
@@ -1192,6 +1193,11 @@ export function ComprasView() {
                           <td className="py-2 px-2 text-slate-200 font-medium">#{po.id}</td>
                           <td className="py-2 px-2 text-slate-400">{po.empresa_nome ?? '—'}</td>
                           <td className="py-2 px-2 text-slate-400">{po.supplier_nome ?? '—'}</td>
+                          <td className="py-2 px-2">
+                            {po.supplier_order_id
+                              ? <span className="font-mono text-xs text-amber-300">{po.supplier_order_id}</span>
+                              : <span className="text-slate-600 text-xs">—</span>}
+                          </td>
                           <td className="py-2 px-2 text-right text-amber-400">{formatCurrency(po.total_final)}</td>
                           <td className="py-2 px-2 text-right">
                             <div className="flex items-center justify-end gap-1 flex-wrap">

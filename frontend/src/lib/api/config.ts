@@ -78,4 +78,30 @@ export const configApi = {
   deleteSkuBridge: async (id: number): Promise<void> => {
     await apiClient.delete(`/api/v1/config/sku-bridge/${id}`);
   },
+
+  // ─── SMTP ──────────────────────────────────────────────────────────────────
+  getSmtp: async (): Promise<SmtpConfig> => {
+    const { data } = await apiClient.get<SmtpConfig>('/api/v1/config/smtp');
+    return data;
+  },
+
+  saveSmtp: async (cfg: SmtpConfig & { smtp_password?: string }): Promise<void> => {
+    await apiClient.post('/api/v1/config/smtp', cfg);
+  },
+
+  testSmtp: async (test_email: string): Promise<{ success: boolean; error?: string }> => {
+    const { data } = await apiClient.post<{ success: boolean; error?: string }>(
+      '/api/v1/config/smtp/test',
+      { test_email }
+    );
+    return data;
+  },
 };
+
+export interface SmtpConfig {
+  smtp_host: string;
+  smtp_port: number;
+  smtp_user: string;
+  smtp_from: string;
+  smtp_password_set: boolean;
+}

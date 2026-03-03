@@ -6,7 +6,7 @@ import time
 import logging
 from app.config.database import init_database
 from app.config.settings import get_settings
-from app.api.v1 import upload, kpis, invoices, transactions, bank, empresas, marketplaces, orders, pendentes, sales, purchases, suppliers, automation, finance, rma, payment_methods, logistics, config, billing, office_stock
+from app.api.v1 import upload, kpis, invoices, transactions, bank, empresas, marketplaces, orders, pendentes, sales, purchases, suppliers, automation, finance, rma, payment_methods, logistics, config, billing, office_stock, invoice_validation
 
 _settings = get_settings()
 
@@ -86,6 +86,7 @@ app.include_router(logistics.router, prefix="/api/v1")
 app.include_router(config.router, prefix="/api/v1")
 app.include_router(billing.router, prefix="/api/v1")
 app.include_router(office_stock.router, prefix="/api/v1")
+app.include_router(invoice_validation.router, prefix="/api/v1")
 
 
 @app.on_event("startup")
