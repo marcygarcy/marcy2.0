@@ -260,6 +260,35 @@ class SalesStatsResponse(BaseModel):
     lucro_previsto: float = 0.0
 
 
+class SalesKpisTopProduct(BaseModel):
+    sku: str
+    nome_produto: str
+    quantidade_vendida: float
+    gmv_produto: float
+
+
+class SalesKpisMarketplace(BaseModel):
+    marketplace_id: Optional[int] = None
+    nome: str
+    volume: Optional[float] = None
+    num_orders: Optional[int] = None
+
+
+class SalesKpisResponse(BaseModel):
+    ano: int
+    mes: int
+    vendas_acumuladas: float
+    vendas_mes: float
+    total_orders_ativas: int
+    orders_concluidas: int
+    orders_pendentes: int
+    orders_canceladas: int
+    orders_reembolsadas: int
+    top_10_produtos: List[SalesKpisTopProduct]
+    marketplace_maior_volume: SalesKpisMarketplace
+    marketplace_mais_orders: SalesKpisMarketplace
+
+
 class SalesImportResponse(BaseModel):
     success: bool
     error: Optional[str] = None
@@ -491,6 +520,21 @@ async def sales_export(
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
+    finally:
+        service.close()
+
+
+@router.get("/kpis", response_model=SalesKpisResponse)
+async def sales_kpis(
+    ano: int = Query(..., description="Ano (ex: 2026)"),
+    mes: int = Query(..., ge=1, le=12, description="Mês (1-12)"),
+    empresa_id: Optional[int] = Query(None),
+    service: SalesModuleService = Depends(get_sales_module_service),
+):
+    """KPIs de vendas por ano/mês: vendas acumuladas, vendas mês, orders por estado, top 10 produtos, marketplaces."""
+    try:
+        data = service.get_sales_kpis(ano=ano, mes=mes, empresa_id=empresa_id)
+        return SalesKpisResponse(**data)
     finally:
         service.close()
 

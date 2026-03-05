@@ -3,16 +3,16 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { ShoppingCart, Package, Loader2, CheckCircle, Download, Send, Globe, Copy, ChevronRight, AlertTriangle, FileText, Eye, X, Truck, BarChart2, RefreshCw, ExternalLink, BookOpen } from 'lucide-react';
+import { ShoppingCart, Package, Loader2, CheckCircle, Download, Send, Globe, Copy, ChevronRight, AlertTriangle, FileText, Eye, X, Truck, RefreshCw, ExternalLink, BookOpen, Plus, Trash2, Undo2, Pencil } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
-import { purchasesApi, type PendingSale, type PurchaseOrder, type GlobalPendingItem, type PendingPurchaseItem, type CheckoutDetail, type SaleStateItem } from '@/lib/api/purchases';
+import { purchasesApi, type PendingSale, type PurchaseOrder, type GlobalPendingItem, type PendingPurchaseItem, type CheckoutDetail } from '@/lib/api/purchases';
 import { suppliersApi, type SupplierMaster } from '@/lib/api/suppliers';
 import { empresasApi, type Empresa } from '@/lib/api/empresas';
 import { DigitalOrderPreview } from './DigitalOrderPreview';
 import { financeApi } from '@/lib/api/finance';
 import { formatCurrency } from '@/lib/utils';
 
-type ActiveTab = 'central' | 'global' | 'pendentes' | 'checkout' | 'tracking' | 'estado';
+type ActiveTab = 'central' | 'global' | 'pendentes' | 'checkout' | 'tracking';
 
 const LOGISTICS_LABELS: Record<string, { label: string; color: string }> = {
   pending_receipt:       { label: 'Aguarda Receção',    color: 'text-yellow-400 bg-yellow-900/40' },
@@ -76,13 +76,22 @@ export function ComprasView() {
   const [wizardUpdating, setWizardUpdating] = useState(false);
   const [wizardPortes, setWizardPortes] = useState(0);
   const [wizardTaxas, setWizardTaxas] = useState(0);
-  const [wizardTotalOverride, setWizardTotalOverride] = useState<number | ''>('');
   const [wizardBaseOverride, setWizardBaseOverride] = useState<number | ''>('');
   const [wizardIvaOverride, setWizardIvaOverride] = useState<number | ''>('');
-  const [originalSupplierIdForStep, setOriginalSupplierIdForStep] = useState<number | null>(null);
   const [wizardObservacoes, setWizardObservacoes] = useState('');
   const [checkoutSuppliers, setCheckoutSuppliers] = useState<SupplierMaster[]>([]);
   const [wizardSupplierChanging, setWizardSupplierChanging] = useState(false);
+  // Itens editáveis: id → { quantidade, custo_unitario }
+  const [itemEdits, setItemEdits] = useState<Record<number, { quantidade: number; custo_unitario: number }>>({});
+  // Itens adicionados de outras POs do mesmo fornecedor (consolidação escritório) — linhas âmbar
+  const [addedPoItems, setAddedPoItems] = useState<Array<{ poId: number; itemId: number; sku: string; quantidade: number; custo_unitario: number; ean?: string | null }>>([]);
+  const [officeOtherPos, setOfficeOtherPos] = useState<PurchaseOrder[]>([]);
+  // Picker "Procurar Vendas Pendentes"
+  const [pendingPickerOpen, setPendingPickerOpen] = useState(false);
+  const [pendingPickerItems, setPendingPickerItems] = useState<PendingPurchaseItem[]>([]);
+  const [pendingPickerSelected, setPendingPickerSelected] = useState<Set<number>>(new Set());
+  const [pendingPickerLoading, setPendingPickerLoading] = useState(false);
+  const [addingItems, setAddingItems] = useState(false);
 
   // Fase 3: Central de Compras (pending_purchase_items)
   const [centralPending, setCentralPending] = useState<PendingPurchaseItem[]>([]);
@@ -110,9 +119,6 @@ export function ComprasView() {
   const [trackingDetail, setTrackingDetail] = useState<Record<number, CheckoutDetail>>({});
 
   // Tab Estado das Vendas
-  const [saleState, setSaleState] = useState<SaleStateItem[]>([]);
-  const [loadingState, setLoadingState] = useState(false);
-  const [estadoFilter, setEstadoFilter] = useState('');
 
   const empresaId = empresaSelecionada?.id ?? 0;
 
@@ -207,10 +213,41 @@ export function ComprasView() {
           setCheckoutDetail(checkout);
           setWizardPortes(checkout.portes_totais ?? 0);
           setWizardTaxas(checkout.taxas_pagamento ?? 0);
-          setWizardTotalOverride('');
-          setOriginalSupplierIdForStep(po.supplier_id ?? null);
-          setWizardBaseOverride('');
-          setWizardIvaOverride('');
+          // Pré-preencher base e IVA sempre (não apenas quando fornecedor muda)
+          setWizardBaseOverride(checkout.valor_base_artigos ?? 0);
+          setWizardIvaOverride(checkout.iva_total ?? 0);
+          setItemEdits({});
+          setAddedPoItems([]);
+          // Envio escritório: carregar outras POs draft do mesmo fornecedor e mostrar itens na tabela (linhas âmbar)
+          const tipoEnvio = (checkout.tipo_envio ?? po.tipo_envio ?? '').toLowerCase();
+          if (tipoEnvio.includes('escritorio') || tipoEnvio.includes('escritório') || tipoEnvio === 'office') {
+            purchasesApi.getDrafts(po.empresa_id, 100)
+              .then((r) => {
+                const others = r.items.filter(
+                  (p) => p.supplier_id === po.supplier_id && p.id !== po.id,
+                );
+                setOfficeOtherPos(others);
+                if (others.length > 0) {
+                  Promise.all(others.map((p) => purchasesApi.getCheckoutDetail(p.id)))
+                    .then((details) => {
+                      const merged = details.flatMap((d) =>
+                        (d.items ?? []).map((it) => ({
+                          poId: d.id,
+                          itemId: it.id,
+                          sku: it.sku_fornecedor ?? it.sku_marketplace ?? '—',
+                          quantidade: it.quantidade,
+                          custo_unitario: it.custo_checkout ?? it.custo_unitario ?? 0,
+                        })),
+                      );
+                      setAddedPoItems(merged);
+                    })
+                    .catch(() => {});
+                }
+              })
+              .catch(() => setOfficeOtherPos([]));
+          } else {
+            setOfficeOtherPos([]);
+          }
         })
         .catch(() => {
           setWizardPODetail(null);
@@ -241,16 +278,6 @@ export function ComprasView() {
         .then((r) => setTrackingOrders(r.items.filter((po) => po.status !== 'Draft')))
         .catch(() => setTrackingOrders([]))
         .finally(() => setLoadingTracking(false));
-    }
-  }, [activeTab, empresaId]);
-
-  useEffect(() => {
-    if (activeTab === 'estado') {
-      setLoadingState(true);
-      purchasesApi.getSaleState(empresaId || undefined, 500)
-        .then((r) => setSaleState(r.items))
-        .catch(() => setSaleState([]))
-        .finally(() => setLoadingState(false));
     }
   }, [activeTab, empresaId]);
 
@@ -306,6 +333,18 @@ export function ComprasView() {
       setOrders((prev) => prev.map((po) => (po.id === poId ? { ...po, status } : po)));
     } finally {
       setUpdatingId(null);
+    }
+  };
+
+  const handleDeletePo = async (poId: number) => {
+    if (!window.confirm('Apagar esta ordem de compra? Os itens da PO são removidos. As vendas não são alteradas (pode criar nova PO depois).')) return;
+    try {
+      await purchasesApi.deletePurchaseOrder(poId);
+      setOrders((prev) => prev.filter((po) => po.id !== poId));
+      setTotalOrders((t) => Math.max(0, t - 1));
+    } catch (e: unknown) {
+      const msg = e && typeof e === 'object' && 'response' in e && (e as { response?: { data?: { detail?: string } } }).response?.data?.detail;
+      alert(msg || 'Erro ao apagar a ordem de compra.');
     }
   };
 
@@ -483,9 +522,8 @@ export function ComprasView() {
       setCheckoutDetail(checkout);
       setWizardPortes(checkout.portes_totais ?? 0);
       setWizardTaxas(checkout.taxas_pagamento ?? 0);
-      setWizardTotalOverride('');
-      setWizardBaseOverride('');
-      setWizardIvaOverride('');
+      setWizardBaseOverride(checkout.valor_base_artigos ?? 0);
+      setWizardIvaOverride(checkout.iva_total ?? 0);
     } catch (e: unknown) {
       alert((e as Error)?.message ?? 'Erro ao alterar fornecedor.');
     } finally {
@@ -496,18 +534,28 @@ export function ComprasView() {
   const handleWizardFinalizePo = async () => {
     const poId = wizardPOIds[wizardStep];
     if (!poId) return;
-    const supplierChanged = wizardPODetail != null && originalSupplierIdForStep != null && wizardPODetail.supplier_id !== originalSupplierIdForStep;
-    if (supplierChanged && (wizardBaseOverride === '' || wizardIvaOverride === '')) return;
     setWizardUpdating(true);
     try {
+      const baseVal = wizardBaseOverride === '' ? undefined : Number(wizardBaseOverride);
+      const ivaVal  = wizardIvaOverride  === '' ? undefined : Number(wizardIvaOverride);
       await purchasesApi.finalizePo(poId, {
         supplier_order_id: supplierOrderIdInput.trim() || undefined,
         portes_totais: wizardPortes,
         taxas_pagamento: wizardTaxas,
-        total_final: wizardTotalOverride !== '' ? Number(wizardTotalOverride) : undefined,
-        valor_base_artigos: supplierChanged ? Number(wizardBaseOverride) : undefined,
-        iva_total: supplierChanged ? Number(wizardIvaOverride) : undefined,
+        valor_base_artigos: baseVal,
+        iva_total: ivaVal,
       });
+      // Se há POs adicionadas (consolidação escritório), finalizar também com a mesma NE
+      if (addedPoItems.length > 0) {
+        const addedPoIds = [...new Set(addedPoItems.map((i) => i.poId))];
+        await Promise.allSettled(
+          addedPoIds.map((pid) =>
+            purchasesApi.finalizePo(pid, {
+              supplier_order_id: supplierOrderIdInput.trim() || undefined,
+            }),
+          ),
+        );
+      }
       setSupplierOrderIdInput('');
       if (wizardStep + 1 >= wizardPOIds.length) {
         setWizardPOIds([]);
@@ -549,11 +597,25 @@ export function ComprasView() {
       {/* Checkout Wizard: passos sequenciais após Preparar Compras */}
       {wizardPOIds.length > 0 && (
         <Card className="border-amber-500/50">
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="flex items-center gap-2">
               <ChevronRight className="w-5 h-5 text-amber-400" />
               Checkout – Passo {wizardStep + 1} de {wizardPOIds.length}
             </CardTitle>
+            <button
+              type="button"
+              onClick={() => {
+                setWizardPOIds([]);
+                setWizardStep(0);
+                setAddedPoItems([]);
+                setItemEdits({});
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 border border-slate-600 hover:border-slate-500 text-sm transition-colors"
+              title="Sair do checkout sem concluir"
+            >
+              <X className="w-4 h-4" />
+              Cancelar
+            </button>
           </CardHeader>
           <CardContent>
             {wizardLoading ? (
@@ -592,169 +654,75 @@ export function ComprasView() {
                       ))}
                     </select>
                     {wizardSupplierChanging && <p className="text-slate-400 text-xs mt-1">A atualizar...</p>}
-                    <p className="text-slate-500 text-xs uppercase tracking-wide mt-3 mb-1">Total</p>
-                    <p className="text-amber-400 font-medium">
-                      {wizardPODetail != null && originalSupplierIdForStep != null && wizardPODetail.supplier_id !== originalSupplierIdForStep
-                        ? formatCurrency(
-                            (wizardBaseOverride === '' ? 0 : Number(wizardBaseOverride)) +
-                            (wizardIvaOverride === '' ? 0 : Number(wizardIvaOverride)) +
-                            wizardPortes + wizardTaxas
-                          )
-                        : formatCurrency(wizardTotalOverride !== '' ? Number(wizardTotalOverride) : (checkoutDetail?.total_final ?? wizardPODetail.total_final))}
+                    <p className="text-slate-400 text-xs mt-2 pt-2 border-t border-slate-600">
+                      Tipo de envio: {(wizardPODetail.tipo_envio ?? '').toLowerCase() === 'escritorio'
+                        ? <span className="text-emerald-400 font-medium">Escritório</span>
+                        : <span className="text-sky-400 font-medium">Ao cliente</span>
+                      }
+                      {(wizardPODetail.tipo_envio ?? '').toLowerCase() !== 'escritorio' && (
+                        <span className="text-slate-500 ml-1">(envio direto ao cliente)</span>
+                      )}
                     </p>
                   </div>
                 </div>
 
-                {/* v3.5: Painel de totais — modo normal ou "fornecedor alterado" (preencher base, IVA, portes, taxas) */}
+                {/* Envio para escritório — visível quando o fornecedor envia para escritório */}
+                {((checkoutDetail?.tipo_envio ?? wizardPODetail.tipo_envio ?? '').toLowerCase() === 'escritorio' && checkoutDetail?.shipping_address) && (
+                  <div className="p-3 rounded-lg bg-emerald-900/30 border border-emerald-700/50 text-sm">
+                    <p className="text-emerald-400 text-xs font-semibold uppercase tracking-wide">Envio para escritório</p>
+                    <p className="text-white font-medium mt-1">{checkoutDetail.shipping_address.designacao ?? '—'}</p>
+                    {checkoutDetail.shipping_address.morada && <p className="text-slate-400">{checkoutDetail.shipping_address.morada}</p>}
+                    {(checkoutDetail.shipping_address.codigo_postal || checkoutDetail.shipping_address.localidade) && (
+                      <p className="text-slate-400">{[checkoutDetail.shipping_address.codigo_postal, checkoutDetail.shipping_address.localidade].filter(Boolean).join(' ')}</p>
+                    )}
+                    {checkoutDetail.shipping_address.pais && <p className="text-slate-400">{checkoutDetail.shipping_address.pais}</p>}
+                  </div>
+                )}
+
+                {/* Painel de totais — sempre editável */}
                 {checkoutDetail && (() => {
-                  const supplierChanged = wizardPODetail != null && originalSupplierIdForStep != null && wizardPODetail.supplier_id !== originalSupplierIdForStep;
-                  const baseVal = supplierChanged ? (wizardBaseOverride === '' ? 0 : Number(wizardBaseOverride)) : checkoutDetail.valor_base_artigos;
-                  const ivaVal = supplierChanged ? (wizardIvaOverride === '' ? 0 : Number(wizardIvaOverride)) : checkoutDetail.iva_total;
-                  const totalFromFields = baseVal + ivaVal + wizardPortes + wizardTaxas;
-                  const canFinalizeSupplierChanged = supplierChanged && wizardBaseOverride !== '' && wizardIvaOverride !== '';
+                  const baseVal  = wizardBaseOverride === '' ? 0 : Number(wizardBaseOverride);
+                  const ivaVal   = wizardIvaOverride  === '' ? 0 : Number(wizardIvaOverride);
+                  const totalCalc = baseVal + ivaVal + wizardPortes + wizardTaxas;
                   return (
-                    <>
-                      <div className="p-4 rounded-lg bg-slate-800/60 border border-slate-600">
-                        {supplierChanged ? (
-                          <>
-                            <p className="text-amber-300 text-sm font-medium mb-2">Fornecedor alterado — preencha todos os valores</p>
-                            <p className="text-slate-400 text-xs mb-3">Valor base, IVA, portes e taxas de pagamento são obrigatórios.</p>
-                            <div className="flex flex-wrap gap-6 items-end">
-                              <label className="flex flex-col gap-1">
-                                <span className="text-slate-400 text-sm">Valor base (€) *</span>
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  min={0}
-                                  value={wizardBaseOverride === '' ? '' : wizardBaseOverride}
-                                  onChange={(e) => {
-                                    const raw = e.target.value;
-                                    if (raw === '') setWizardBaseOverride('');
-                                    else { const v = Number(raw); if (!Number.isNaN(v)) setWizardBaseOverride(v); }
-                                  }}
-                                  placeholder="0,00"
-                                  className="w-28 bg-slate-700 border border-slate-600 rounded px-3 py-1.5 text-white text-sm"
-                                />
-                              </label>
-                              <label className="flex flex-col gap-1">
-                                <span className="text-slate-400 text-sm">IVA (€) *</span>
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  min={0}
-                                  value={wizardIvaOverride === '' ? '' : wizardIvaOverride}
-                                  onChange={(e) => {
-                                    const raw = e.target.value;
-                                    if (raw === '') setWizardIvaOverride('');
-                                    else { const v = Number(raw); if (!Number.isNaN(v)) setWizardIvaOverride(v); }
-                                  }}
-                                  placeholder="0,00"
-                                  className="w-28 bg-slate-700 border border-slate-600 rounded px-3 py-1.5 text-white text-sm"
-                                />
-                              </label>
-                              <label className="flex flex-col gap-1">
-                                <span className="text-slate-400 text-sm">Portes (€) *</span>
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  value={wizardPortes}
-                                  onChange={(e) => { const v = Number(e.target.value) || 0; setWizardPortes(v); }}
-                                  className="w-28 bg-slate-700 border border-slate-600 rounded px-3 py-1.5 text-white text-sm"
-                                />
-                              </label>
-                              <label className="flex flex-col gap-1">
-                                <span className="text-slate-400 text-sm">Taxas pagamento (€) *</span>
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  value={wizardTaxas}
-                                  onChange={(e) => { const v = Number(e.target.value) || 0; setWizardTaxas(v); }}
-                                  className="w-28 bg-slate-700 border border-slate-600 rounded px-3 py-1.5 text-white text-sm"
-                                />
-                              </label>
-                              <div className="text-sm text-amber-400 font-medium">
-                                Total: {formatCurrency(totalFromFields)}
-                              </div>
-                            </div>
-                          </>
-                        ) : (
-                          <>
-                            <p className="text-slate-400 text-xs uppercase tracking-wide mb-3">Totais editáveis (atualizam em tempo real)</p>
-                            <div className="flex flex-wrap gap-6 items-end">
-                              <label className="flex flex-col gap-1">
-                                <span className="text-slate-400 text-sm">Portes (€)</span>
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  value={wizardPortes}
-                                  onChange={(e) => {
-                                    const v = Number(e.target.value) || 0;
-                                    setWizardPortes(v);
-                                    purchasesApi.getCheckoutDetail(wizardPOIds[wizardStep], { portes: v, taxas_pagamento: wizardTaxas }).then(setCheckoutDetail).catch(() => {});
-                                  }}
-                                  className="w-28 bg-slate-700 border border-slate-600 rounded px-3 py-1.5 text-white text-sm"
-                                />
-                              </label>
-                              <label className="flex flex-col gap-1">
-                                <span className="text-slate-400 text-sm">Taxas pagamento (€)</span>
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  value={wizardTaxas}
-                                  onChange={(e) => {
-                                    const v = Number(e.target.value) || 0;
-                                    setWizardTaxas(v);
-                                    purchasesApi.getCheckoutDetail(wizardPOIds[wizardStep], { portes: wizardPortes, taxas_pagamento: v }).then(setCheckoutDetail).catch(() => {});
-                                  }}
-                                  className="w-28 bg-slate-700 border border-slate-600 rounded px-3 py-1.5 text-white text-sm"
-                                />
-                              </label>
-                              <label className="flex flex-col gap-1">
-                                <span className="text-slate-400 text-sm">Total pago (€) — override</span>
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  value={wizardTotalOverride === '' ? '' : wizardTotalOverride}
-                                  onChange={(e) => {
-                                    const raw = e.target.value;
-                                    if (raw === '') setWizardTotalOverride('');
-                                    else { const v = Number(raw); if (!Number.isNaN(v)) setWizardTotalOverride(v); }
-                                  }}
-                                  onBlur={() => {
-                                    if (wizardTotalOverride !== '') {
-                                      purchasesApi.updatePoTotals(wizardPOIds[wizardStep], {
-                                        portes_totais: wizardPortes,
-                                        taxas_pagamento: wizardTaxas,
-                                        total_final: Number(wizardTotalOverride),
-                                      }).then((r) => { if (r.total_final != null) setCheckoutDetail((c) => c ? { ...c, total_final: r.total_final! } : null); }).catch(() => {}); }
-                                  }}
-                                  placeholder={String(checkoutDetail?.total_final ?? '')}
-                                  className="w-28 bg-slate-700 border border-slate-600 rounded px-3 py-1.5 text-white text-sm"
-                                />
-                              </label>
-                              <div className="text-sm text-slate-400">
-                                Base: {formatCurrency(checkoutDetail.valor_base_artigos)} · IVA ({checkoutDetail.taxa_iva_pct}%): {formatCurrency(checkoutDetail.iva_total)}
-                              </div>
-                            </div>
-                          </>
-                        )}
-                        {!supplierChanged && (
-                          <div className={`mt-3 px-3 py-2 rounded text-sm font-medium ${
-                            (checkoutDetail.margin_pct ?? 0) >= 15 ? 'bg-emerald-900/40 text-emerald-300' :
-                            (checkoutDetail.margin_pct ?? 0) >= 10 ? 'bg-amber-900/40 text-amber-300' :
-                            'bg-red-900/40 text-red-300'
-                          }`}>
-                            Esta remessa tem um lucro previsto de {formatCurrency(checkoutDetail.margin_eur ?? 0)} ({(checkoutDetail.margin_pct ?? 0).toFixed(1)}%).
-                          </div>
-                        )}
-                        {!supplierChanged && (checkoutDetail.margin_pct ?? 0) < 10 && (
-                          <div className="mt-2 flex items-center gap-2 text-amber-400 text-sm">
-                            <AlertTriangle className="w-4 h-4 shrink-0" />
-                            Custos logísticos elevados detetados para este volume.
-                          </div>
-                        )}
+                    <div className="p-4 rounded-lg bg-slate-800/60 border border-slate-600 space-y-3">
+                      <p className="text-slate-400 text-xs uppercase tracking-wide">Totais da fatura (editáveis)</p>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        {[
+                          { label: 'Valor base (€)', val: wizardBaseOverride, set: setWizardBaseOverride },
+                          { label: `IVA ${checkoutDetail.taxa_iva_pct > 0 ? `(${checkoutDetail.taxa_iva_pct}%)` : ''} (€)`, val: wizardIvaOverride, set: setWizardIvaOverride },
+                          { label: 'Portes (€)', val: wizardPortes as number | '', set: (v: number | '') => setWizardPortes(v === '' ? 0 : Number(v)) },
+                          { label: 'Taxas pagamento (€)', val: wizardTaxas as number | '', set: (v: number | '') => setWizardTaxas(v === '' ? 0 : Number(v)) },
+                        ].map(({ label, val, set }) => (
+                          <label key={label} className="flex flex-col gap-1">
+                            <span className="text-slate-400 text-xs">{label}</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min={0}
+                              value={val === '' ? '' : val}
+                              onChange={(e) => {
+                                const raw = e.target.value;
+                                if (raw === '') (set as (v: number | '') => void)('');
+                                else { const v = Number(raw); if (!Number.isNaN(v)) (set as (v: number | '') => void)(v); }
+                              }}
+                              className="w-full bg-slate-700 border border-slate-600 rounded px-2 py-1.5 text-white text-sm"
+                            />
+                          </label>
+                        ))}
                       </div>
-                    </>
+                      <div className="flex items-center justify-between border-t border-slate-700 pt-2">
+                        <span className="text-slate-400 text-sm">Total calculado</span>
+                        <span className="text-amber-400 font-bold text-lg">{formatCurrency(totalCalc)}</span>
+                      </div>
+                      <div className={`px-3 py-2 rounded text-sm font-medium ${
+                        (checkoutDetail.margin_pct ?? 0) >= 15 ? 'bg-emerald-900/40 text-emerald-300' :
+                        (checkoutDetail.margin_pct ?? 0) >= 10 ? 'bg-amber-900/40 text-amber-300' :
+                        'bg-red-900/40 text-red-300'
+                      }`}>
+                        Lucro previsto: {formatCurrency(checkoutDetail.margin_eur ?? 0)} ({(checkoutDetail.margin_pct ?? 0).toFixed(1)}%)
+                      </div>
+                    </div>
                   );
                 })()}
 
@@ -762,7 +730,11 @@ export function ComprasView() {
                   <button
                     type="button"
                     onClick={() => {
-                      const lines = (wizardPODetail.items || []).map((i) => `${i.sku_fornecedor ?? i.sku_marketplace ?? ''}\t${i.quantidade}`);
+                      const lines = (wizardPODetail.items || []).map((i) => {
+                        const edit = itemEdits[i.id];
+                        const qty = edit ? edit.quantidade : i.quantidade;
+                        return `${i.sku_fornecedor ?? i.sku_marketplace ?? ''}\t${qty}`;
+                      });
                       copyToClipboard(lines.join('\n'));
                     }}
                     className="px-3 py-2 rounded-lg bg-slate-700 text-slate-200 hover:bg-slate-600 flex items-center gap-2 text-sm"
@@ -773,58 +745,253 @@ export function ComprasView() {
                     <Download className="w-4 h-4" /> Exportar CSV
                   </button>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!wizardPODetail?.supplier_id) return;
+                    setPendingPickerOpen(true);
+                    setPendingPickerLoading(true);
+                    setPendingPickerSelected(new Set());
+                    purchasesApi.getPendingForCockpit(wizardPODetail.supplier_id, 500)
+                      .then((r) => setPendingPickerItems(r.items ?? []))
+                      .catch(() => setPendingPickerItems([]))
+                      .finally(() => setPendingPickerLoading(false));
+                  }}
+                  className="mb-3 px-3 py-2 rounded-lg bg-slate-700 text-slate-200 hover:bg-slate-600 flex items-center gap-2 text-sm"
+                >
+                  <Plus className="w-4 h-4" /> Procurar Vendas Pendentes
+                </button>
+
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-slate-700">
+                        <th className="text-left py-2 px-2 text-slate-300 font-semibold">Pedido</th>
+                        <th className="text-left py-2 px-2 text-slate-300 font-semibold">EAN</th>
                         <th className="text-left py-2 px-2 text-slate-300 font-semibold">SKU Fornecedor</th>
-                        <th className="text-right py-2 px-2 text-slate-300 font-semibold">Qtd</th>
-                        <th className="text-right py-2 px-2 text-slate-300 font-semibold">Custo un.</th>
-                        <th className="text-right py-2 px-2 text-slate-300 font-semibold">Copiar</th>
+                        <th className="text-center py-2 px-2 text-slate-300 font-semibold">Qtd</th>
+                        <th className="text-center py-2 px-2 text-slate-300 font-semibold">Custo un. (€)</th>
+                        <th className="text-right py-2 px-2 text-slate-300 font-semibold">Subtotal</th>
+                        <th className="text-right py-2 px-2 text-slate-300 font-semibold">Val.Venda</th>
+                        <th className="text-right py-2 px-2 text-slate-300 font-semibold">Margem</th>
+                        <th className="w-8" />
                       </tr>
                     </thead>
                     <tbody>
-                      {(wizardPODetail.items || []).map((item) => (
-                        <tr key={item.id} className="border-b border-slate-800">
-                          <td className="py-2 px-2 text-slate-200">{item.sku_fornecedor ?? item.sku_marketplace ?? '—'}</td>
-                          <td className="py-2 px-2 text-right text-slate-300">{item.quantidade}</td>
-                          <td className="py-2 px-2 text-right text-slate-400">{formatCurrency(item.custo_unitario)}</td>
-                          <td className="py-2 px-2 text-right">
-                            <button
-                              type="button"
-                              onClick={() => copyToClipboard(`${item.sku_fornecedor ?? item.sku_marketplace ?? ''}\t${item.quantidade}`)}
-                              className="p-1.5 rounded bg-slate-700 text-slate-300 hover:bg-slate-600 flex items-center gap-1 text-xs ml-auto"
-                            >
-                              <Copy className="w-3 h-3" /> SKU + Qtd
-                            </button>
+                      {(checkoutDetail?.items ?? []).map((item) => {
+                        const edit = itemEdits[item.id];
+                        const qty = edit?.quantidade ?? Number(item.quantidade) ?? 0;
+                        const cost = edit?.custo_unitario ?? Number(item.custo_checkout ?? item.custo_unitario) ?? 0;
+                        const subtotal = qty * cost + (item.portes_rateados ?? 0) + (item.impostos_rateados ?? 0);
+                        const margem = item.sale_value != null ? (item.sale_value - subtotal) : item.margem_linha;
+                        const pct = item.sale_value != null && item.sale_value > 0 && margem != null ? (margem / item.sale_value) * 100 : null;
+                        return (
+                          <tr key={item.id} className="border-b border-slate-800">
+                            <td className="py-1.5 px-2 text-slate-400 text-xs">{item.numero_pedido ?? '—'}</td>
+                            <td className="py-1.5 px-2 text-slate-400 font-mono text-xs">{item.ean ?? '—'}</td>
+                            <td className="py-1.5 px-2 text-slate-200">{item.sku_fornecedor ?? item.sku_marketplace ?? '—'}</td>
+                            <td className="py-1.5 px-2">
+                              <input
+                                type="number"
+                                min={0}
+                                step={1}
+                                value={qty}
+                                onChange={(e) => {
+                                  const v = e.target.value === '' ? 0 : Number(e.target.value);
+                                  if (!Number.isNaN(v)) setItemEdits((prev) => ({ ...prev, [item.id]: { quantidade: v, custo_unitario: cost } }));
+                                }}
+                                onBlur={() => {
+                                  purchasesApi.updatePoItem(wizardPOIds[wizardStep], item.id, { quantidade: qty, custo_unitario: cost }).then((r) => {
+                                    const items = checkoutDetail?.items ?? [];
+                                    const newBase = items.reduce((s, it) => {
+                                      const e2 = it.id === item.id ? { quantidade: qty, custo_unitario: cost } : itemEdits[it.id];
+                                      const c = e2?.custo_unitario ?? (it.custo_checkout ?? it.custo_unitario);
+                                      return s + (e2?.quantidade ?? it.quantidade) * c;
+                                    }, 0);
+                                    setWizardBaseOverride(Number(newBase.toFixed(2)));
+                                    if (checkoutDetail?.taxa_iva_pct != null) setWizardIvaOverride(Number((newBase * (checkoutDetail.taxa_iva_pct / 100)).toFixed(2)));
+                                  }).catch(() => {});
+                                }}
+                                className="w-16 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-white text-sm text-center"
+                              />
+                            </td>
+                            <td className="py-1.5 px-2">
+                              <input
+                                type="number"
+                                min={0}
+                                step={0.01}
+                                value={cost}
+                                onChange={(e) => {
+                                  const v = e.target.value === '' ? 0 : Number(e.target.value);
+                                  if (!Number.isNaN(v)) setItemEdits((prev) => ({ ...prev, [item.id]: { quantidade: qty, custo_unitario: v } }));
+                                }}
+                                onBlur={(e) => {
+                                  const newCost = e.target.value === '' ? 0 : Number((e.target as HTMLInputElement).value);
+                                  if (Number.isNaN(newCost)) return;
+                                  purchasesApi.updatePoItem(wizardPOIds[wizardStep], item.id, { quantidade: qty, custo_unitario: newCost }).then(() => {
+                                    const items = checkoutDetail?.items ?? [];
+                                    const newBase = items.reduce((s, it) => {
+                                      const e2 = it.id === item.id ? { quantidade: qty, custo_unitario: newCost } : itemEdits[it.id];
+                                      const c = (it.id === item.id ? newCost : e2?.custo_unitario) ?? (it.custo_checkout ?? it.custo_unitario);
+                                      return s + (e2?.quantidade ?? it.quantidade) * c;
+                                    }, 0);
+                                    setWizardBaseOverride(Number(newBase.toFixed(2)));
+                                    if (checkoutDetail?.taxa_iva_pct != null) setWizardIvaOverride(Number((newBase * (checkoutDetail.taxa_iva_pct / 100)).toFixed(2)));
+                                  }).catch(() => {});
+                                }}
+                                className="w-24 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-white text-sm text-center"
+                              />
+                            </td>
+                            <td className="py-1.5 px-2 text-right text-amber-300 font-mono text-xs">{formatCurrency(subtotal)}</td>
+                            <td className="py-1.5 px-2 text-right text-sky-300 font-mono text-xs">{item.sale_value != null ? formatCurrency(item.sale_value) : '—'}</td>
+                            <td className="py-1.5 px-2 text-right">
+                              {margem != null ? (
+                                <span className={`text-xs font-medium ${margem >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                  {formatCurrency(margem)}{pct != null ? ` (${pct.toFixed(1)}%)` : ''}
+                                </span>
+                              ) : (
+                                <span className="text-slate-500">—</span>
+                              )}
+                            </td>
+                            <td />
+                          </tr>
+                        );
+                      })}
+                      {addedPoItems.map((item, idx) => (
+                        <tr key={`added-${item.poId}-${item.itemId}`} className="border-b border-amber-900/30 bg-amber-950/20">
+                          <td className="py-1.5 px-2 text-slate-500">—</td>
+                          <td className="py-1.5 px-2 text-slate-500 font-mono text-xs">{item.ean ?? '—'}</td>
+                          <td className="py-1.5 px-2 text-amber-200">
+                            {item.sku}
+                            <span className="ml-1.5 text-[10px] text-amber-500">PO#{item.poId}</span>
+                          </td>
+                          <td className="py-1.5 px-2">
+                            <input
+                              type="number"
+                              min={0}
+                              step={1}
+                              value={String(item.quantidade)}
+                              onChange={(e) => {
+                                const v = e.target.value === '' ? 0 : Number(e.target.value);
+                                if (!Number.isNaN(v)) setAddedPoItems((prev) => prev.map((p, i) => i === idx ? { ...p, quantidade: v } : p));
+                              }}
+                              className="w-16 bg-slate-700 border border-amber-700/40 rounded px-2 py-1 text-amber-200 text-sm text-center"
+                            />
+                          </td>
+                          <td className="py-1.5 px-2">
+                            <input
+                              type="number"
+                              min={0}
+                              step={0.01}
+                              value={String(item.custo_unitario)}
+                              onChange={(e) => {
+                                const v = e.target.value === '' ? 0 : Number(e.target.value);
+                                if (!Number.isNaN(v)) setAddedPoItems((prev) => prev.map((p, i) => i === idx ? { ...p, custo_unitario: v } : p));
+                              }}
+                              className="w-24 bg-slate-700 border border-amber-700/40 rounded px-2 py-1 text-amber-200 text-sm text-center"
+                            />
+                          </td>
+                          <td className="py-1.5 px-2 text-right text-amber-400 font-mono text-xs">{formatCurrency(item.quantidade * item.custo_unitario)}</td>
+                          <td className="py-1.5 px-2 text-right text-slate-500">—</td>
+                          <td className="py-1.5 px-2 text-right text-slate-500">—</td>
+                          <td className="py-1.5 px-2">
+                            <button type="button" onClick={() => setAddedPoItems((prev) => prev.filter((_, i) => i !== idx))} className="p-1 rounded text-slate-400 hover:text-red-400" title="Remover da lista"><X className="w-4 h-4" /></button>
                           </td>
                         </tr>
                       ))}
                     </tbody>
+                    <tfoot>
+                      <tr className="border-t-2 border-slate-600 font-semibold bg-slate-900/60">
+                        <td colSpan={2} className="py-2 px-2 text-slate-300">TOTAL LOTE</td>
+                        <td className="py-2 px-2 text-center text-slate-300">
+                          {(checkoutDetail?.items ?? []).reduce((s, i) => s + (itemEdits[i.id]?.quantidade ?? i.quantidade), 0) + addedPoItems.reduce((s, i) => s + i.quantidade, 0)}
+                        </td>
+                        <td />
+                        <td className="py-2 px-2 text-right text-amber-400">{formatCurrency((wizardBaseOverride === '' ? 0 : Number(wizardBaseOverride)) + addedPoItems.reduce((s, i) => s + i.quantidade * i.custo_unitario, 0))}</td>
+                        <td className="py-2 px-2 text-right text-sky-300">
+                          {(checkoutDetail?.items ?? []).reduce((s, i) => s + (i.sale_value ?? 0), 0) > 0 || (checkoutDetail?.linked_sales_total ?? 0) > 0
+                            ? formatCurrency((checkoutDetail?.items ?? []).reduce((s, i) => s + (i.sale_value ?? 0), 0) || (checkoutDetail?.linked_sales_total ?? 0))
+                            : '—'}
+                        </td>
+                        <td className={`py-2 px-2 text-right font-bold ${(() => {
+                          const totalVenda = (checkoutDetail?.items ?? []).reduce((s, i) => s + (i.sale_value ?? 0), 0) || (checkoutDetail?.linked_sales_total ?? 0);
+                          const totalCusto = (wizardBaseOverride === '' ? 0 : Number(wizardBaseOverride)) + wizardPortes + wizardTaxas + (wizardIvaOverride === '' ? 0 : Number(wizardIvaOverride)) + addedPoItems.reduce((s, i) => s + i.quantidade * i.custo_unitario, 0);
+                          const lucro = totalVenda - totalCusto;
+                          return totalVenda > 0 ? (lucro >= 0 ? 'text-emerald-400' : 'text-red-400') : '';
+                        })()}`}>
+                          {(() => {
+                            const totalVenda = (checkoutDetail?.items ?? []).reduce((s, i) => s + (i.sale_value ?? 0), 0) || (checkoutDetail?.linked_sales_total ?? 0);
+                            const totalCusto = (wizardBaseOverride === '' ? 0 : Number(wizardBaseOverride)) + wizardPortes + wizardTaxas + (wizardIvaOverride === '' ? 0 : Number(wizardIvaOverride)) + addedPoItems.reduce((s, i) => s + i.quantidade * i.custo_unitario, 0);
+                            const lucro = totalVenda - totalCusto;
+                            const pct = totalVenda > 0 ? (lucro / totalVenda) * 100 : 0;
+                            return totalVenda > 0 ? `${formatCurrency(lucro)} (${pct.toFixed(1)}%)` : '—';
+                          })()}
+                        </td>
+                        <td />
+                      </tr>
+                    </tfoot>
                   </table>
                 </div>
-                {checkoutDetail && (
-                  <div className="border-t border-slate-700 pt-4">
-                    <p className="text-slate-400 text-sm mb-2 flex items-center gap-2">
-                      <FileText className="w-4 h-4" /> Nota de encomenda (imprimir / guardar como PDF)
-                    </p>
-                    <DigitalOrderPreview
-                      data={
-                        wizardPODetail != null && originalSupplierIdForStep != null && wizardPODetail.supplier_id !== originalSupplierIdForStep
-                          ? {
-                              ...checkoutDetail,
-                              valor_base_artigos: wizardBaseOverride === '' ? 0 : Number(wizardBaseOverride),
-                              iva_total: wizardIvaOverride === '' ? 0 : Number(wizardIvaOverride),
-                              portes_totais: wizardPortes,
-                              custo_portes_fornecedor: wizardPortes,
-                              taxas_pagamento: wizardTaxas,
-                              total_final: (wizardBaseOverride === '' ? 0 : Number(wizardBaseOverride)) + (wizardIvaOverride === '' ? 0 : Number(wizardIvaOverride)) + wizardPortes + wizardTaxas,
+
+                {pendingPickerOpen && (
+                  <div className="mt-4 p-4 rounded-lg bg-slate-800 border border-slate-600">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-slate-300 font-medium">Vendas pendentes · {wizardPODetail?.supplier_nome ?? 'Fornecedor'}</span>
+                      <button type="button" onClick={() => setPendingPickerOpen(false)} className="text-slate-400 hover:text-white"><X className="w-4 h-4" /></button>
+                    </div>
+                    {pendingPickerLoading ? (
+                      <p className="text-slate-400 text-sm">A carregar...</p>
+                    ) : pendingPickerItems.length === 0 ? (
+                      <p className="text-slate-500 text-sm">Nenhum item pendente para este fornecedor.</p>
+                    ) : (
+                      <>
+                        <div className="overflow-x-auto max-h-48 overflow-y-auto mb-3">
+                          <table className="w-full text-sm">
+                            <thead><tr className="border-b border-slate-600"><th className="text-left py-1 px-2 text-slate-400">☐</th><th className="text-left py-1 px-2 text-slate-400">SKU</th><th className="text-center py-1 px-2 text-slate-400">Qtd</th><th className="text-right py-1 px-2 text-slate-400">Custo base</th><th className="text-right py-1 px-2 text-slate-400">Lucro esperado</th></tr></thead>
+                            <tbody>
+                              {pendingPickerItems.map((p) => (
+                                <tr key={p.id} className="border-b border-slate-700/50">
+                                  <td className="py-1 px-2">
+                                    <input type="checkbox" checked={pendingPickerSelected.has(p.id)} onChange={(e) => setPendingPickerSelected((prev) => { const next = new Set(prev); if (e.target.checked) next.add(p.id); else next.delete(p.id); return next; })} className="rounded" />
+                                  </td>
+                                  <td className="py-1 px-2 text-slate-200">{p.sku_marketplace ?? p.sku_supplier ?? '—'}</td>
+                                  <td className="py-1 px-2 text-center">{p.quantity}</td>
+                                  <td className="py-1 px-2 text-right text-amber-400">{formatCurrency(p.cost_price_base ?? 0)}</td>
+                                  <td className="py-1 px-2 text-right text-emerald-400">{p.expected_profit != null ? `+${formatCurrency(p.expected_profit)}` : '—'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={addingItems || pendingPickerSelected.size === 0}
+                          onClick={async () => {
+                            const poId = wizardPOIds[wizardStep];
+                            if (!poId || pendingPickerSelected.size === 0) return;
+                            setAddingItems(true);
+                            try {
+                              const res = await purchasesApi.addItemsToPo(poId, [...pendingPickerSelected]);
+                              if (res.success) {
+                                const [po, checkout] = await Promise.all([purchasesApi.getPurchaseOrder(poId), purchasesApi.getCheckoutDetail(poId, { portes: wizardPortes, taxas_pagamento: wizardTaxas })]);
+                                setWizardPODetail(po);
+                                setCheckoutDetail(checkout);
+                                setWizardBaseOverride(checkout.valor_base_artigos ?? 0);
+                                setWizardIvaOverride(checkout.iva_total ?? 0);
+                                setPendingPickerOpen(false);
+                                setPendingPickerSelected(new Set());
+                                setPendingPickerItems((prev) => prev.filter((i) => !pendingPickerSelected.has(i.id)));
+                              }
+                            } finally {
+                              setAddingItems(false);
                             }
-                          : checkoutDetail
-                      }
-                      observacoes={wizardObservacoes}
-                      onObservacoesChange={setWizardObservacoes}
-                    />
+                          }}
+                          className="px-3 py-2 rounded bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white text-sm"
+                        >
+                          {addingItems ? 'A adicionar...' : `Adicionar ${pendingPickerSelected.size} item(ns) seleccionado(s)`}
+                        </button>
+                      </>
+                    )}
                   </div>
                 )}
 
@@ -841,19 +1008,12 @@ export function ComprasView() {
                   </label>
                   <button
                     onClick={handleWizardFinalizePo}
-                    disabled={
-                      wizardUpdating ||
-                      (wizardPODetail != null && originalSupplierIdForStep != null && wizardPODetail.supplier_id !== originalSupplierIdForStep &&
-                        (wizardBaseOverride === '' || wizardIvaOverride === ''))
-                    }
+                    disabled={wizardUpdating}
                     className="px-4 py-2 rounded-lg bg-blue-600 text-white font-medium disabled:opacity-50 flex items-center gap-2"
                   >
                     {wizardUpdating ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
                     Finalizar PO {wizardStep + 1 < wizardPOIds.length ? 'e próximo' : 'e concluir'}
                   </button>
-                  {wizardPODetail != null && originalSupplierIdForStep != null && wizardPODetail.supplier_id !== originalSupplierIdForStep && (wizardBaseOverride === '' || wizardIvaOverride === '') && (
-                    <p className="text-amber-400 text-sm">Preencha valor base e IVA (fornecedor alterado).</p>
-                  )}
                 </div>
               </div>
             ) : (
@@ -884,10 +1044,6 @@ export function ComprasView() {
           <TabsTrigger value="tracking" className="data-[state=active]:bg-amber-600 data-[state=active]:text-white">
             <Truck className="w-4 h-4 mr-2" />
             Tracking
-          </TabsTrigger>
-          <TabsTrigger value="estado" className="data-[state=active]:bg-amber-600 data-[state=active]:text-white">
-            <BarChart2 className="w-4 h-4 mr-2" />
-            Estado Vendas
           </TabsTrigger>
         </TabsList>
 
@@ -1203,14 +1359,6 @@ export function ComprasView() {
                             <div className="flex items-center justify-end gap-1 flex-wrap">
                               <button
                                 type="button"
-                                onClick={() => openViewPo(po.id)}
-                                className="px-2 py-1 rounded bg-slate-600 text-white text-xs hover:bg-slate-500 flex items-center gap-1"
-                                title="Visualizar nota de encomenda (imprimir/guardar PDF)"
-                              >
-                                <Eye className="w-3.5 h-3.5" /> Visualizar PO
-                              </button>
-                              <button
-                                type="button"
                                 onClick={() => { setWizardPOIds([po.id]); setWizardStep(0); }}
                                 className="px-2 py-1 rounded bg-amber-600 text-white text-xs hover:bg-amber-500"
                               >
@@ -1379,14 +1527,16 @@ export function ComprasView() {
                           <td className="py-2 px-2 text-right text-amber-400 font-medium">{formatCurrency(po.total_final)}</td>
                           <td className="py-2 px-2 text-right">
                             <div className="flex items-center justify-end gap-1 flex-wrap">
-                              <button
-                                type="button"
-                                onClick={() => openViewPo(po.id)}
-                                className="p-1.5 rounded bg-slate-600 text-slate-200 hover:bg-slate-500 flex items-center gap-1 text-xs"
-                                title="Visualizar nota de encomenda (imprimir/guardar PDF)"
-                              >
-                                <Eye className="w-4 h-4" /> Visualizar PO
-                              </button>
+                              {po.status !== 'Draft' && (
+                                <button
+                                  type="button"
+                                  onClick={() => openViewPo(po.id)}
+                                  className="p-1.5 rounded bg-slate-600 text-slate-200 hover:bg-slate-500 flex items-center gap-1 text-xs"
+                                  title="Visualizar nota de encomenda (imprimir/guardar PDF)"
+                                >
+                                  <Eye className="w-4 h-4" /> Visualizar PO
+                                </button>
+                              )}
                               <button
                                 onClick={() => handleExport(po.id)}
                                 className="p-1.5 rounded bg-slate-700 text-slate-300 hover:bg-slate-600"
@@ -1395,29 +1545,59 @@ export function ComprasView() {
                                 <Download className="w-4 h-4" />
                               </button>
                               {po.status === 'Draft' && (
-                                <button
-                                  onClick={() => handleUpdateStatus(po.id, 'Ordered')}
-                                  disabled={updatingId === po.id}
-                                  className="p-1.5 rounded bg-blue-700 text-white hover:bg-blue-600 disabled:opacity-50 flex items-center gap-1 text-xs"
-                                  title="Marcar como encomendado (pedido feito ao fornecedor)"
-                                >
-                                  {updatingId === po.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-                                  Encomendado
-                                </button>
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => { setWizardPOIds([po.id]); setWizardStep(0); }}
+                                    className="p-1.5 rounded bg-amber-700 text-white hover:bg-amber-600 flex items-center gap-1 text-xs"
+                                    title="Abrir para editar (quantidades, custos, fornecedor)"
+                                  >
+                                    <Pencil className="w-4 h-4" /> Editar
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeletePo(po.id)}
+                                    className="p-1.5 rounded bg-red-900/60 text-red-300 hover:bg-red-800/60 flex items-center gap-1 text-xs"
+                                    title="Apagar PO (itens removidos; vendas não alteradas)"
+                                  >
+                                    <Trash2 className="w-4 h-4" /> Apagar
+                                  </button>
+                                  <button
+                                    onClick={() => handleUpdateStatus(po.id, 'Ordered')}
+                                    disabled={updatingId === po.id}
+                                    className="p-1.5 rounded bg-blue-700 text-white hover:bg-blue-600 disabled:opacity-50 flex items-center gap-1 text-xs"
+                                    title="Marcar como encomendado (pedido feito ao fornecedor)"
+                                  >
+                                    {updatingId === po.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                                    Encomendado
+                                  </button>
+                                </>
                               )}
                               {po.status === 'Ordered' && (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setFinancasNavigation({ tab: 'pagamentos' });
-                                    setModuloSelecionado(MODULO_FINANCAS);
-                                  }}
-                                  className="p-1.5 rounded bg-amber-600 text-white hover:bg-amber-500 flex items-center gap-1 text-xs"
-                                  title="Ir para Finanças > Pagamentos (pendentes) para confirmar e conciliar pagamento"
-                                >
-                                  <ExternalLink className="w-4 h-4" />
-                                  Ir para Pagamentos
-                                </button>
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUpdateStatus(po.id, 'Draft')}
+                                    disabled={updatingId === po.id}
+                                    className="p-1.5 rounded bg-slate-600 text-slate-200 hover:bg-slate-500 disabled:opacity-50 flex items-center gap-1 text-xs"
+                                    title="Reverter para rascunho para editar ou apagar"
+                                  >
+                                    {updatingId === po.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Undo2 className="w-4 h-4" />}
+                                    Reverter para rascunho
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setFinancasNavigation({ tab: 'pagamentos' });
+                                      setModuloSelecionado(MODULO_FINANCAS);
+                                    }}
+                                    className="p-1.5 rounded bg-amber-600 text-white hover:bg-amber-500 flex items-center gap-1 text-xs"
+                                    title="Ir para Finanças > Pagamentos (pendentes) para confirmar e conciliar pagamento"
+                                  >
+                                    <ExternalLink className="w-4 h-4" />
+                                    Ir para Pagamentos
+                                  </button>
+                                </>
                               )}
                               {po.status === 'Paid' && (
                                 <button
@@ -1545,127 +1725,6 @@ export function ComprasView() {
                   ))}
                 </div>
               )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* ── Tab: Estado das Vendas ─────────────────────────────── */}
-        <TabsContent value="estado" className="mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <BarChart2 className="w-5 h-5 text-amber-400" />
-                Estado das Vendas (pipeline)
-              </CardTitle>
-              <p className="text-slate-400 text-sm mt-1">
-                Visão do ciclo completo: venda → compra → receção → expedição ao cliente.
-              </p>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center gap-3 mb-4 flex-wrap">
-                <input
-                  type="text"
-                  placeholder="Filtrar por n.º pedido ou SKU..."
-                  value={estadoFilter}
-                  onChange={(e) => setEstadoFilter(e.target.value)}
-                  className="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-white text-sm w-72"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLoadingState(true);
-                    purchasesApi.getSaleState(empresaId || undefined, 500)
-                      .then((r) => setSaleState(r.items))
-                      .catch(() => setSaleState([]))
-                      .finally(() => setLoadingState(false));
-                  }}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-700 text-slate-200 text-sm hover:bg-slate-600"
-                >
-                  <RefreshCw className="w-4 h-4" /> Atualizar
-                </button>
-              </div>
-
-              {loadingState ? (
-                <div className="flex items-center justify-center py-12 text-slate-400">
-                  <Loader2 className="w-6 h-6 animate-spin mr-2" /> A carregar...
-                </div>
-              ) : saleState.length === 0 ? (
-                <p className="text-slate-400 text-center py-8">
-                  Nenhuma venda com dados de pipeline disponíveis. Certifique-se que as vendas têm ordens de compra associadas.
-                </p>
-              ) : (() => {
-                  const filtered = estadoFilter.trim()
-                    ? saleState.filter((s) =>
-                        (s.numero_pedido ?? '').toLowerCase().includes(estadoFilter.toLowerCase()) ||
-                        (s.sku_oferta ?? '').toLowerCase().includes(estadoFilter.toLowerCase())
-                      )
-                    : saleState;
-
-                  // KPI counts
-                  const countByEstado = filtered.reduce<Record<string, number>>((acc, s) => {
-                    const k = s.estado_venda ?? 'Desconhecido';
-                    acc[k] = (acc[k] ?? 0) + 1;
-                    return acc;
-                  }, {});
-
-                  return (
-                    <>
-                      {/* Summary badges */}
-                      <div className="flex flex-wrap gap-2 mb-4">
-                        {Object.entries(countByEstado).map(([estado, count]) => (
-                          <span key={estado} className="px-3 py-1 rounded-full text-xs font-medium bg-slate-700 text-slate-300">
-                            {estado}: <strong className="text-white">{count}</strong>
-                          </span>
-                        ))}
-                      </div>
-
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="border-b border-slate-700">
-                              <th className="text-left py-2 px-2 text-slate-300 font-semibold">N.º pedido</th>
-                              <th className="text-left py-2 px-2 text-slate-300 font-semibold">SKU</th>
-                              <th className="text-right py-2 px-2 text-slate-300 font-semibold">Qtd</th>
-                              <th className="text-left py-2 px-2 text-slate-300 font-semibold">Estado venda</th>
-                              <th className="text-left py-2 px-2 text-slate-300 font-semibold">Empresa</th>
-                              <th className="text-left py-2 px-2 text-slate-300 font-semibold">PO</th>
-                              <th className="text-left py-2 px-2 text-slate-300 font-semibold">Ref. fornecedor</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {filtered.map((s, idx) => (
-                              <tr key={idx} className="border-b border-slate-800 hover:bg-slate-800/50">
-                                <td className="py-2 px-2 text-slate-200">{s.numero_pedido ?? `#${s.order_id}`}</td>
-                                <td className="py-2 px-2 text-slate-400 font-mono text-xs">{s.sku_oferta ?? '—'}</td>
-                                <td className="py-2 px-2 text-right text-slate-300">{s.quantidade ?? '—'}</td>
-                                <td className="py-2 px-2">
-                                  <span className={`text-xs font-medium ${
-                                    s.estado_venda === 'Expedido ao Cliente' ? 'text-emerald-400' :
-                                    s.estado_venda === 'No Escritório' ? 'text-blue-400' :
-                                    s.estado_venda === 'Em Processamento de Compra' ? 'text-amber-400' :
-                                    'text-slate-400'
-                                  }`}>
-                                    {s.estado_venda ?? '—'}
-                                  </span>
-                                </td>
-                                <td className="py-2 px-2 text-slate-400">{s.empresa_nome ?? '—'}</td>
-                                <td className="py-2 px-2 text-slate-400">
-                                  {s.purchase_order_id ? (
-                                    <span className="text-xs bg-amber-900/40 text-amber-300 px-2 py-0.5 rounded">
-                                      PO #{s.purchase_order_id}
-                                    </span>
-                                  ) : '—'}
-                                </td>
-                                <td className="py-2 px-2 text-slate-400 font-mono text-xs">{s.supplier_order_id ?? '—'}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </>
-                  );
-                })()
-              }
             </CardContent>
           </Card>
         </TabsContent>

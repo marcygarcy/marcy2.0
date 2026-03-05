@@ -2,8 +2,8 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import {
-  CheckCircle, XCircle, Mail, Clock, FileText, AlertTriangle,
-  RefreshCw, ChevronDown, MessageSquare, ExternalLink, X,
+  FileText, AlertTriangle, RefreshCw, ClipboardEdit,
+  X, ExternalLink,
 } from 'lucide-react';
 import {
   invoiceValidationApi,
@@ -12,26 +12,40 @@ import {
   InvoiceValidationStats,
   InvoiceStatus,
 } from '@/lib/api/invoiceValidation';
+import InvoiceReviewModal from './InvoiceReviewModal';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
-const STATUS_LABELS: Record<InvoiceStatus, string> = {
+const STATUS_LABELS: Record<string, string> = {
   pendente_validacao: 'Pendente',
+  pending: 'Pendente',
   aprovada: 'Aprovada',
+  approved: 'Aprovada',
   aprovada_com_nota: 'Aprovada c/ nota',
   contestada: 'Contestada',
   em_discussao: 'Aguardar',
   anulada: 'Anulada',
 };
 
-const STATUS_COLORS: Record<InvoiceStatus, string> = {
+const STATUS_COLORS: Record<string, string> = {
   pendente_validacao: 'bg-amber-500/20 text-amber-300 border border-amber-500/30',
+  pending: 'bg-amber-500/20 text-amber-300 border border-amber-500/30',
   aprovada: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30',
+  approved: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30',
   aprovada_com_nota: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30',
   contestada: 'bg-rose-500/20 text-rose-300 border border-rose-500/30',
   em_discussao: 'bg-sky-500/20 text-sky-300 border border-sky-500/30',
   anulada: 'bg-slate-500/20 text-slate-400 border border-slate-500/30',
 };
+
+const STATUS_LABEL_FALLBACK = (s: string) => STATUS_LABELS[s] ?? s;
+
+const STATUS_COLOR_FALLBACK = (s: string) =>
+  STATUS_COLORS[s] ?? 'bg-slate-500/20 text-slate-400 border border-slate-500/30';
+
+// Statuses que permitem acções (inclui 'pending' do schema legado)
+const IS_ACTIONABLE = (s: string) =>
+  s === 'pendente_validacao' || s === 'em_discussao' || s === 'pending';
 
 const fmt = (v: number | null | undefined) =>
   v == null ? '—' : v.toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -211,240 +225,6 @@ function Row({ label, value, cls = '' }: { label: string; value: string; cls?: s
   );
 }
 
-// ─── Modal Aprovar com Nota ───────────────────────────────────────────────────
-
-function ApproveNoteModal({
-  invoice,
-  onClose,
-  onDone,
-}: {
-  invoice: SupplierInvoice;
-  onClose: () => void;
-  onDone: () => void;
-}) {
-  const [nota, setNota] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  const submit = async () => {
-    if (!nota.trim()) return;
-    setLoading(true);
-    try {
-      await invoiceValidationApi.approveWithNote(invoice.id, nota.trim());
-      onDone();
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <ModalWrapper onClose={onClose} title={`Aprovar com Nota — ${invoice.invoice_ref}`}>
-      <p className="text-sm text-slate-400 mb-3">
-        A fatura será aprovada e o lançamento será criado na Conta Corrente do fornecedor.
-      </p>
-      <label className="block text-xs text-slate-400 mb-1">Nota de aprovação *</label>
-      <textarea
-        value={nota}
-        onChange={(e) => setNota(e.target.value)}
-        rows={4}
-        className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-white placeholder-slate-500 resize-none"
-        placeholder="Ex: Divergência de 0,50€ aceite por diferença de arredondamento..."
-        autoFocus
-      />
-      <div className="flex justify-end gap-2 mt-4">
-        <button onClick={onClose} className="px-4 py-2 text-sm text-slate-300 hover:text-white">
-          Cancelar
-        </button>
-        <button
-          onClick={submit}
-          disabled={loading || !nota.trim()}
-          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-sm rounded"
-        >
-          {loading ? 'A aprovar...' : 'Aprovar'}
-        </button>
-      </div>
-    </ModalWrapper>
-  );
-}
-
-// ─── Modal Contestar ──────────────────────────────────────────────────────────
-
-function ContestModal({
-  invoice,
-  smtpConfigured,
-  onClose,
-  onDone,
-}: {
-  invoice: SupplierInvoice;
-  smtpConfigured: boolean;
-  onClose: () => void;
-  onDone: () => void;
-}) {
-  const [emailPara, setEmailPara] = useState(invoice.supplier_email ?? '');
-  const [assunto, setAssunto] = useState(
-    `Contestação de Fatura ${invoice.invoice_ref} — Hub Sales`
-  );
-  const [corpo, setCorpo] = useState(
-    `Exmo(a) Sr(a),\n\nVimos por este meio contestar a fatura ${invoice.invoice_ref} ` +
-    `${invoice.invoice_date ? `de ${fmtDate(invoice.invoice_date)} ` : ''}` +
-    `no valor de ${fmt(invoice.valor_fatura)} €.\n\n` +
-    (invoice.supplier_order_id ? `Referência NE: ${invoice.supplier_order_id}\n` : '') +
-    (invoice.purchase_order_id ? `Purchase Order interna: #${invoice.purchase_order_id}\n` : '') +
-    (invoice.flag_divergencia
-      ? `\nDetectámos uma diferença de ${fmt(invoice.diferenca)} € entre o valor da fatura ` +
-        `e o valor acordado na PO (${fmt(invoice.valor_po)} €).\n`
-      : '') +
-    `\nSolicitamos a emissão de nota de crédito ou esclarecimento no prazo de 5 dias úteis.\n\n` +
-    `Com os melhores cumprimentos,\nEquipa Hub Sales`
-  );
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<{ ok: boolean; email_sent?: boolean; email_error?: string } | null>(null);
-
-  const submit = async () => {
-    setLoading(true);
-    try {
-      const res = await invoiceValidationApi.contest(invoice.id, {
-        email_para: emailPara,
-        assunto,
-        corpo,
-      });
-      setResult(res);
-      if (!res.email_error) {
-        setTimeout(onDone, 1200);
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const mailtoLink = `mailto:${encodeURIComponent(emailPara)}?subject=${encodeURIComponent(assunto)}&body=${encodeURIComponent(corpo)}`;
-
-  return (
-    <ModalWrapper onClose={onClose} title={`Contestar — ${invoice.invoice_ref}`} wide>
-      {!smtpConfigured && (
-        <div className="flex items-start gap-2 bg-amber-900/30 border border-amber-600/40 rounded p-3 mb-4 text-xs text-amber-300">
-          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-          <span>
-            SMTP não configurado — o email não será enviado automaticamente.{' '}
-            <a href={mailtoLink} className="underline font-medium">
-              Clicar aqui para abrir no cliente de email
-            </a>{' '}
-            com o conteúdo pré-preenchido.
-          </span>
-        </div>
-      )}
-
-      {result && (
-        <div
-          className={`mb-3 p-3 rounded text-sm flex items-center gap-2 ${
-            result.email_sent
-              ? 'bg-emerald-900/30 border border-emerald-600/40 text-emerald-300'
-              : 'bg-rose-900/30 border border-rose-600/40 text-rose-300'
-          }`}
-        >
-          {result.email_sent ? (
-            <><CheckCircle className="w-4 h-4" /> Email enviado e fatura marcada como Contestada.</>
-          ) : (
-            <>
-              <AlertTriangle className="w-4 h-4" />
-              Fatura marcada como Contestada, mas o email falhou: {result.email_error}.{' '}
-              <a href={mailtoLink} className="underline ml-1">Abrir no cliente de email</a>
-            </>
-          )}
-        </div>
-      )}
-
-      <div className="space-y-3">
-        <div>
-          <label className="block text-xs text-slate-400 mb-1">Para *</label>
-          <input
-            value={emailPara}
-            onChange={(e) => setEmailPara(e.target.value)}
-            className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-white"
-            placeholder="email@fornecedor.com"
-          />
-        </div>
-        <div>
-          <label className="block text-xs text-slate-400 mb-1">Assunto *</label>
-          <input
-            value={assunto}
-            onChange={(e) => setAssunto(e.target.value)}
-            className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-white"
-          />
-        </div>
-        <div>
-          <label className="block text-xs text-slate-400 mb-1">Corpo do email</label>
-          <textarea
-            value={corpo}
-            onChange={(e) => setCorpo(e.target.value)}
-            rows={10}
-            className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-white font-mono resize-none"
-          />
-        </div>
-      </div>
-
-      <div className="flex justify-between items-center mt-4">
-        {!smtpConfigured && (
-          <a
-            href={mailtoLink}
-            className="text-xs text-sky-400 hover:text-sky-300 flex items-center gap-1"
-          >
-            <ExternalLink className="w-3.5 h-3.5" />
-            Abrir no cliente de email
-          </a>
-        )}
-        <div className="flex gap-2 ml-auto">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-300 hover:text-white">
-            Cancelar
-          </button>
-          <button
-            onClick={submit}
-            disabled={loading || !emailPara.trim() || !!result?.email_sent}
-            className="px-4 py-2 bg-rose-700 hover:bg-rose-600 disabled:opacity-40 text-white text-sm rounded flex items-center gap-2"
-          >
-            <Mail className="w-4 h-4" />
-            {loading
-              ? 'A enviar...'
-              : smtpConfigured
-              ? 'Enviar email + Contestar'
-              : 'Registar como Contestada'}
-          </button>
-        </div>
-      </div>
-    </ModalWrapper>
-  );
-}
-
-function ModalWrapper({
-  title,
-  onClose,
-  children,
-  wide = false,
-}: {
-  title: string;
-  onClose: () => void;
-  children: React.ReactNode;
-  wide?: boolean;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/70" onClick={onClose} />
-      <div
-        className={`relative bg-slate-900 border border-slate-700 rounded-xl shadow-2xl ${
-          wide ? 'w-full max-w-2xl' : 'w-full max-w-md'
-        } max-h-[90vh] overflow-y-auto`}
-      >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700">
-          <h3 className="font-semibold text-white text-sm">{title}</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-white">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-        <div className="p-5">{children}</div>
-      </div>
-    </div>
-  );
-}
-
 // ─── Main component ───────────────────────────────────────────────────────────
 
 interface Props {
@@ -457,13 +237,12 @@ export default function InvoiceInboxView({ empresaId }: Props) {
   const [loading, setLoading] = useState(false);
   const [smtpConfigured, setSmtpConfigured] = useState(false);
 
-  // Filtros
-  const [filterStatus, setFilterStatus] = useState<InvoiceStatus | ''>('pendente_validacao');
+  // Filtros — default '' (todos) para que faturas com status legado ('pending') sejam visíveis
+  const [filterStatus, setFilterStatus] = useState<InvoiceStatus | ''>('');
   const [apenasDiv, setApenasDiv] = useState(false);
 
   // Modals
-  const [approveNoteModal, setApproveNoteModal] = useState<SupplierInvoice | null>(null);
-  const [contestModal, setContestModal] = useState<SupplierInvoice | null>(null);
+  const [reviewModal, setReviewModal] = useState<SupplierInvoice | null>(null);
   const [drawerInvoice, setDrawerInvoice] = useState<SupplierInvoice | null>(null);
 
   const load = useCallback(async () => {
@@ -488,14 +267,8 @@ export default function InvoiceInboxView({ empresaId }: Props) {
 
   useEffect(() => { load(); }, [load]);
 
-  const handleApprove = async (inv: SupplierInvoice) => {
-    if (!confirm(`Aprovar fatura ${inv.invoice_ref}?\n\nEsta acção cria um lançamento na Conta Corrente do fornecedor.`)) return;
-    await invoiceValidationApi.approve(inv.id);
-    load();
-  };
-
-  const handleDiscussion = async (inv: SupplierInvoice) => {
-    await invoiceValidationApi.setDiscussion(inv.id);
+  const handleDone = () => {
+    setReviewModal(null);
     load();
   };
 
@@ -620,52 +393,25 @@ export default function InvoiceInboxView({ empresaId }: Props) {
                     )}
                   </td>
                   <td className="px-3 py-3 text-center">
-                    <span className={`px-2 py-0.5 rounded-full text-xs ${STATUS_COLORS[inv.status]}`}>
-                      {STATUS_LABELS[inv.status]}
+                    <span className={`px-2 py-0.5 rounded-full text-xs ${STATUS_COLOR_FALLBACK(inv.status)}`}>
+                      {STATUS_LABEL_FALLBACK(inv.status)}
                     </span>
                   </td>
                   <td
                     className="px-3 py-3"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    {inv.status === 'pendente_validacao' || inv.status === 'em_discussao' ? (
-                      <div className="flex items-center gap-1">
-                        <ActionBtn
-                          icon={<CheckCircle className="w-3.5 h-3.5" />}
-                          label="Aprovar"
-                          color="emerald"
-                          onClick={() => handleApprove(inv)}
-                        />
-                        <ActionBtn
-                          icon={<CheckCircle className="w-3.5 h-3.5" />}
-                          label="c/ Nota"
-                          color="teal"
-                          onClick={() => setApproveNoteModal(inv)}
-                        />
-                        <ActionBtn
-                          icon={<Mail className="w-3.5 h-3.5" />}
-                          label="Contestar"
-                          color="rose"
-                          onClick={() => setContestModal(inv)}
-                        />
-                        {inv.status === 'pendente_validacao' && (
-                          <ActionBtn
-                            icon={<Clock className="w-3.5 h-3.5" />}
-                            label="Aguardar"
-                            color="sky"
-                            onClick={() => handleDiscussion(inv)}
-                          />
-                        )}
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => setDrawerInvoice(inv)}
-                        className="text-xs text-slate-400 hover:text-white flex items-center gap-1"
-                      >
-                        <MessageSquare className="w-3.5 h-3.5" />
-                        Ver
-                      </button>
-                    )}
+                    <button
+                      onClick={() => setReviewModal(inv)}
+                      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs border transition-colors ${
+                        IS_ACTIONABLE(inv.status)
+                          ? 'bg-sky-800/50 hover:bg-sky-700/60 border-sky-700/50 text-sky-300'
+                          : 'bg-slate-700/40 hover:bg-slate-600/50 border-slate-600/50 text-slate-400'
+                      }`}
+                    >
+                      <ClipboardEdit className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Rever</span>
+                    </button>
                   </td>
                 </tr>
               ))
@@ -674,20 +420,13 @@ export default function InvoiceInboxView({ empresaId }: Props) {
         </table>
       </div>
 
-      {/* Modals */}
-      {approveNoteModal && (
-        <ApproveNoteModal
-          invoice={approveNoteModal}
-          onClose={() => setApproveNoteModal(null)}
-          onDone={() => { setApproveNoteModal(null); load(); }}
-        />
-      )}
-      {contestModal && (
-        <ContestModal
-          invoice={contestModal}
+      {/* Modal de revisão unificado */}
+      {reviewModal && (
+        <InvoiceReviewModal
+          invoice={reviewModal}
           smtpConfigured={smtpConfigured}
-          onClose={() => setContestModal(null)}
-          onDone={() => { setContestModal(null); load(); }}
+          onClose={() => setReviewModal(null)}
+          onDone={handleDone}
         />
       )}
       {drawerInvoice && (
@@ -701,32 +440,3 @@ export default function InvoiceInboxView({ empresaId }: Props) {
   );
 }
 
-function ActionBtn({
-  icon,
-  label,
-  color,
-  onClick,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  color: 'emerald' | 'teal' | 'rose' | 'sky' | 'slate';
-  onClick: () => void;
-}) {
-  const colors: Record<string, string> = {
-    emerald: 'bg-emerald-700/50 hover:bg-emerald-600/60 text-emerald-300 border-emerald-600/30',
-    teal: 'bg-teal-700/50 hover:bg-teal-600/60 text-teal-300 border-teal-600/30',
-    rose: 'bg-rose-700/50 hover:bg-rose-600/60 text-rose-300 border-rose-600/30',
-    sky: 'bg-sky-700/50 hover:bg-sky-600/60 text-sky-300 border-sky-600/30',
-    slate: 'bg-slate-700/50 hover:bg-slate-600/60 text-slate-300 border-slate-600/30',
-  };
-  return (
-    <button
-      onClick={onClick}
-      title={label}
-      className={`flex items-center gap-1 px-2 py-1 rounded border text-xs ${colors[color]}`}
-    >
-      {icon}
-      <span className="hidden sm:inline">{label}</span>
-    </button>
-  );
-}

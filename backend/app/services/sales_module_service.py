@@ -10,6 +10,7 @@ Módulo de Vendas (Sales/Orders): Universal Ingestor, Comissões, Gatilho Compra
 """
 from __future__ import annotations
 
+import calendar
 import pandas as pd
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple
@@ -679,6 +680,174 @@ class SalesModuleService:
             "custo_real_compra", "lucro_real_unitario",
         ]
         return [dict(zip(cols, r)) for r in rows]
+
+    def get_sales_kpis(
+        self,
+        ano: int,
+        mes: int,
+        empresa_id: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        KPIs de vendas por ano/mês (sales_orders):
+        vendas_acumuladas, vendas_mes, orders por estado, top 10 produtos, marketplace maior volume, mais orders.
+        """
+        data_inicio_ano = f"{ano}-01-01"
+        last_day = calendar.monthrange(ano, mes)[1]
+        data_fim_mes = f"{ano}-{mes:02d}-{last_day}"
+        data_inicio_mes = f"{ano}-{mes:02d}-01"
+        conds = []
+        params: List[Any] = []
+        if empresa_id is not None:
+            conds.append("so.empresa_id = ?")
+            params.append(empresa_id)
+        where = " AND " + " AND ".join(conds) if conds else ""
+
+        # Vendas acumuladas (1 jan até fim do mês)
+        row_acum = self.conn.execute(
+            f"""
+            SELECT COALESCE(SUM(total_gross), 0), COUNT(*)
+            FROM sales_orders so
+            WHERE CAST(so.order_date AS DATE) >= ? AND CAST(so.order_date AS DATE) <= ? {where}
+            """.replace(" {where}", where),
+            [data_inicio_ano, data_fim_mes] + params,
+        ).fetchone()
+        vendas_acumuladas = float(row_acum[0] or 0)
+        total_orders_ano = int(row_acum[1] or 0)
+
+        # Vendas do mês
+        row_mes = self.conn.execute(
+            f"""
+            SELECT COALESCE(SUM(total_gross), 0), COUNT(*)
+            FROM sales_orders so
+            WHERE CAST(so.order_date AS DATE) >= ? AND CAST(so.order_date AS DATE) <= ? {where}
+            """.replace(" {where}", where),
+            [data_inicio_mes, data_fim_mes] + params,
+        ).fetchone()
+        vendas_mes = float(row_mes[0] or 0)
+        total_orders_mes = int(row_mes[1] or 0)
+
+        # Contagens por status (no mês)
+        status_counts: Dict[str, int] = {}
+        for status in ("Pending", "Shipped", "Paid", "Purchased", "Cancelled"):
+            r = self.conn.execute(
+                f"""
+                SELECT COUNT(*) FROM sales_orders so
+                WHERE CAST(so.order_date AS DATE) >= ? AND CAST(so.order_date AS DATE) <= ?
+                AND COALESCE(so.status, '') = ? {where}
+                """.replace(" {where}", where),
+                [data_inicio_mes, data_fim_mes, status] + params,
+            ).fetchone()
+            status_counts[status] = int(r[0] or 0)
+        orders_pendentes = status_counts.get("Pending", 0)
+        orders_concluidas = (
+            status_counts.get("Shipped", 0)
+            + status_counts.get("Paid", 0)
+            + status_counts.get("Purchased", 0)
+        )
+        orders_canceladas = status_counts.get("Cancelled", 0)
+        orders_reembolsadas = 0  # sem coluna específica
+        orders_ativas = total_orders_mes - orders_canceladas
+
+        # Top 10 produtos (do mês, por quantidade vendida)
+        params_top = [data_inicio_mes, data_fim_mes] + params + [10]
+        try:
+            rows_top = self.conn.execute(
+                f"""
+                SELECT COALESCE(soi.sku_marketplace, soi.internal_sku, '—') AS sku,
+                       COALESCE(soi.sku_marketplace, soi.internal_sku, '—') AS nome_produto,
+                       COALESCE(SUM(soi.quantity), 0) AS quantidade_vendida,
+                       COALESCE(SUM(soi.quantity * COALESCE(soi.unit_price, 0)), 0) AS gmv_produto
+                FROM sales_order_items soi
+                JOIN sales_orders so ON so.id = soi.sales_order_id
+                WHERE CAST(so.order_date AS DATE) >= ? AND CAST(so.order_date AS DATE) <= ? {where}
+                GROUP BY COALESCE(soi.sku_marketplace, soi.internal_sku, '—')
+                ORDER BY quantidade_vendida DESC
+                LIMIT ?
+                """.replace(" {where}", where),
+                params_top,
+            ).fetchall()
+            top_10_produtos = [
+                {
+                    "sku": r[0],
+                    "nome_produto": r[1] or r[0],
+                    "quantidade_vendida": float(r[2] or 0),
+                    "gmv_produto": float(r[3] or 0),
+                }
+                for r in rows_top
+            ]
+        except Exception:
+            top_10_produtos = []
+
+        # Marketplace com maior volume (€) no mês
+        try:
+            row_mv = self.conn.execute(
+                f"""
+                SELECT so.marketplace_id, COALESCE(SUM(so.total_gross), 0) AS vol
+                FROM sales_orders so
+                WHERE CAST(so.order_date AS DATE) >= ? AND CAST(so.order_date AS DATE) <= ? {where}
+                GROUP BY so.marketplace_id
+                ORDER BY vol DESC
+                LIMIT 1
+                """.replace(" {where}", where),
+                [data_inicio_mes, data_fim_mes] + params,
+            ).fetchone()
+            if row_mv and row_mv[0] is not None:
+                nome_m = self.conn.execute(
+                    "SELECT nome FROM marketplaces WHERE id = ?", [row_mv[0]]
+                ).fetchone()
+                marketplace_maior_volume = {
+                    "marketplace_id": row_mv[0],
+                    "nome": (nome_m[0] if nome_m else f"Marketplace #{row_mv[0]}"),
+                    "volume": float(row_mv[1] or 0),
+                    "num_orders": None,
+                }
+            else:
+                marketplace_maior_volume = {"marketplace_id": None, "nome": "—", "volume": 0.0, "num_orders": None}
+        except Exception:
+            marketplace_maior_volume = {"marketplace_id": None, "nome": "—", "volume": 0.0, "num_orders": None}
+
+        # Marketplace com mais orders no mês
+        try:
+            row_mo = self.conn.execute(
+                f"""
+                SELECT so.marketplace_id, COUNT(*) AS cnt
+                FROM sales_orders so
+                WHERE CAST(so.order_date AS DATE) >= ? AND CAST(so.order_date AS DATE) <= ? {where}
+                GROUP BY so.marketplace_id
+                ORDER BY cnt DESC
+                LIMIT 1
+                """.replace(" {where}", where),
+                [data_inicio_mes, data_fim_mes] + params,
+            ).fetchone()
+            if row_mo and row_mo[0] is not None:
+                nome_m = self.conn.execute(
+                    "SELECT nome FROM marketplaces WHERE id = ?", [row_mo[0]]
+                ).fetchone()
+                marketplace_mais_orders = {
+                    "marketplace_id": row_mo[0],
+                    "nome": (nome_m[0] if nome_m else f"Marketplace #{row_mo[0]}"),
+                    "volume": None,
+                    "num_orders": int(row_mo[1] or 0),
+                }
+            else:
+                marketplace_mais_orders = {"marketplace_id": None, "nome": "—", "volume": None, "num_orders": 0}
+        except Exception:
+            marketplace_mais_orders = {"marketplace_id": None, "nome": "—", "volume": None, "num_orders": 0}
+
+        return {
+            "ano": ano,
+            "mes": mes,
+            "vendas_acumuladas": round(vendas_acumuladas, 2),
+            "vendas_mes": round(vendas_mes, 2),
+            "total_orders_ativas": orders_ativas,
+            "orders_concluidas": orders_concluidas,
+            "orders_pendentes": orders_pendentes,
+            "orders_canceladas": orders_canceladas,
+            "orders_reembolsadas": orders_reembolsadas,
+            "top_10_produtos": top_10_produtos,
+            "marketplace_maior_volume": marketplace_maior_volume,
+            "marketplace_mais_orders": marketplace_mais_orders,
+        }
 
     def close(self):
         try:

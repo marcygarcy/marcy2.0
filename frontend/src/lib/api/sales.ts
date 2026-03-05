@@ -153,6 +153,35 @@ export interface SalesStats {
   lucro_previsto?: number;
 }
 
+export interface SalesKpisTopProduct {
+  sku: string;
+  nome_produto: string;
+  quantidade_vendida: number;
+  gmv_produto: number;
+}
+
+export interface SalesKpisMarketplace {
+  marketplace_id: number | null;
+  nome: string;
+  volume?: number | null;
+  num_orders?: number | null;
+}
+
+export interface SalesKpisResponse {
+  ano: number;
+  mes: number;
+  vendas_acumuladas: number;
+  vendas_mes: number;
+  total_orders_ativas: number;
+  orders_concluidas: number;
+  orders_pendentes: number;
+  orders_canceladas: number;
+  orders_reembolsadas: number;
+  top_10_produtos: SalesKpisTopProduct[];
+  marketplace_maior_volume: SalesKpisMarketplace;
+  marketplace_mais_orders: SalesKpisMarketplace;
+}
+
 export interface RecentWithMarginItem {
   sales_order_id: number;
   external_order_id: string | null;
@@ -270,6 +299,16 @@ export const salesApi = {
     if (params.data_inicio) search.append('data_inicio', params.data_inicio);
     if (params.data_fim) search.append('data_fim', params.data_fim);
     const { data } = await apiClient.get<SalesStats>(`/api/v1/sales/stats?${search.toString()}`);
+    return data;
+  },
+
+  /** KPIs de vendas por ano/mês (sales_orders): vendas acumuladas, mês, orders por estado, top produtos, marketplaces */
+  getSalesKpis: async (params: { ano: number; mes: number; empresa_id?: number }): Promise<SalesKpisResponse> => {
+    const search = new URLSearchParams();
+    search.append('ano', String(params.ano));
+    search.append('mes', String(params.mes));
+    if (params.empresa_id != null) search.append('empresa_id', String(params.empresa_id));
+    const { data } = await apiClient.get<SalesKpisResponse>(`/api/v1/sales/kpis?${search.toString()}`);
     return data;
   },
 

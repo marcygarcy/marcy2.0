@@ -1,5 +1,5 @@
 /**
- * Fase 6 – API client para Validação Manual de Faturas de Fornecedores.
+ * Fase 6/7 – API client para Validação Manual de Faturas de Fornecedores.
  */
 import apiClient from './client';
 
@@ -23,12 +23,19 @@ export interface SupplierInvoice {
   supplier_order_id: string | null;   // NE do Fornecedor
   invoice_ref: string;
   invoice_date: string | null;
-  valor_fatura: number;
+  // decomposição (Fase 7)
+  valor_base: number | null;
+  valor_iva: number | null;
+  valor_portes: number | null;
+  data_vencimento: string | null;
+  divergence_code: string | null;
+  // totais
+  valor_fatura: number | null;
   valor_po: number | null;
   diferenca: number | null;
   flag_divergencia: boolean;
   invoice_pdf_url: string | null;
-  status: InvoiceStatus;
+  status: string;                     // string para suportar status legado ('pending')
   source: string;
   aprovado_por: string | null;
   aprovado_em: string | null;
@@ -40,6 +47,40 @@ export interface SupplierInvoice {
   po_data?: string | null;
   po_total?: number | null;
   po_estado?: string | null;
+}
+
+export interface LinkedPO {
+  id: number;
+  status: string | null;
+  total_final: number | null;
+  supplier_order_id: string | null;
+  supplier_nome: string | null;
+  data_criacao: string | null;
+}
+
+export interface CreditNote {
+  id: number;
+  invoice_id: number;
+  empresa_id: number | null;
+  supplier_id: number | null;
+  nc_ref: string;
+  nc_date: string | null;
+  valor: number;
+  notas: string | null;
+  aprovada: boolean;
+  data_criacao: string;
+}
+
+export interface UpdateInvoiceFields {
+  supplier_id?: number;
+  invoice_ref?: string;
+  invoice_date?: string;
+  data_vencimento?: string;
+  valor_base?: number;
+  valor_iva?: number;
+  valor_portes?: number;
+  divergence_code?: string;
+  nota_aprovacao?: string;
 }
 
 export interface InvoiceComm {
@@ -143,6 +184,61 @@ export const invoiceValidationApi = {
 
   getComms: async (invoiceId: number): Promise<InvoiceComm[]> => {
     const res = await apiClient.get(`/api/v1/invoice-validation/${invoiceId}/comms`);
+    return res.data;
+  },
+
+  // ── Fase 7: POs ligadas ───────────────────────────────────────────────────
+
+  getLinkedPos: async (invoiceId: number): Promise<LinkedPO[]> => {
+    const res = await apiClient.get(`/api/v1/invoice-validation/${invoiceId}/pos`);
+    return res.data;
+  },
+
+  setLinkedPos: async (invoiceId: number, po_ids: number[]) => {
+    const res = await apiClient.post(`/api/v1/invoice-validation/${invoiceId}/pos`, { po_ids });
+    return res.data;
+  },
+
+  searchPos: async (params: {
+    q?: string;
+    supplier_id?: number;
+    empresa_id?: number;
+  }): Promise<LinkedPO[]> => {
+    const res = await apiClient.get('/api/v1/invoice-validation/pos/search', { params });
+    return res.data;
+  },
+
+  // ── Fase 7: actualizar campos ──────────────────────────────────────────────
+
+  updateInvoice: async (invoiceId: number, fields: UpdateInvoiceFields) => {
+    const res = await apiClient.patch(`/api/v1/invoice-validation/${invoiceId}`, fields);
+    return res.data;
+  },
+
+  // ── Fase 7: Notas de Crédito ──────────────────────────────────────────────
+
+  getCreditNotes: async (invoiceId: number): Promise<CreditNote[]> => {
+    const res = await apiClient.get(`/api/v1/invoice-validation/${invoiceId}/credit-notes`);
+    return res.data;
+  },
+
+  addCreditNote: async (invoiceId: number, body: {
+    nc_ref: string;
+    valor: number;
+    nc_date?: string;
+    notas?: string;
+  }): Promise<{ ok: boolean; nc_id: number; liquido: number; diferenca: number }> => {
+    const res = await apiClient.post(
+      `/api/v1/invoice-validation/${invoiceId}/credit-notes`,
+      body,
+    );
+    return res.data;
+  },
+
+  deleteCreditNote: async (invoiceId: number, ncId: number) => {
+    const res = await apiClient.delete(
+      `/api/v1/invoice-validation/${invoiceId}/credit-notes/${ncId}`,
+    );
     return res.data;
   },
 };

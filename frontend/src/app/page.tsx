@@ -25,6 +25,7 @@ import { AutomationStatusPage } from '@/components/automation/AutomationStatusPa
 import { FinanceGlobalView } from '@/components/finance/FinanceGlobalView';
 import { OfficeLogisticsView } from '@/components/logistics/OfficeLogisticsView';
 import { BillingView } from '@/components/billing/BillingView';
+import FaturacaoView from '@/components/faturacao/FaturacaoView';
 import { RMAView } from '@/components/rma/RMAView';
 import { OfficeStockView } from '@/components/office/OfficeStockView';
 import { DocsView } from '@/components/docs/DocsView';
@@ -116,6 +117,7 @@ export default function Home() {
   const isModuloLogistics = moduloSelecionado?.id === 'logistics';
   const isModuloRMA = moduloSelecionado?.id === 'rma';
   const isModuloBilling = moduloSelecionado?.id === 'billing';
+  const isModuloFaturacao = moduloSelecionado?.id === 'faturacao';
   const isModuloOfficeStock = moduloSelecionado?.id === 'office-stock';
   const isModuloDocs = moduloSelecionado?.id === 'documentacao';
   const isModuloSystemConfig = moduloSelecionado?.id === 'system-config';
@@ -152,6 +154,8 @@ export default function Home() {
           <OfficeLogisticsView />
         ) : isModuloRMA ? (
           <RMAView />
+        ) : isModuloFaturacao ? (
+          <FaturacaoView />
         ) : isModuloBilling ? (
           <BillingView />
         ) : isModuloOfficeStock ? (

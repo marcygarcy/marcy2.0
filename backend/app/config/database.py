@@ -389,7 +389,7 @@ def init_database():
         cols_poi = [c[0] for c in r]
         if "sales_order_item_id" not in cols_poi:
             conn.execute("ALTER TABLE purchase_order_items ADD COLUMN sales_order_item_id INTEGER")
-        for col, ctype in [("quantidade_recebida", "DOUBLE DEFAULT 0"), ("logistics_status", "TEXT")]:
+        for col, ctype in [("quantidade_recebida", "DOUBLE DEFAULT 0"), ("logistics_status", "TEXT"), ("custo_real_po", "DOUBLE"), ("ean", "TEXT")]:
             if col not in cols_poi:
                 conn.execute(f"ALTER TABLE purchase_order_items ADD COLUMN {col} {ctype}")
     except Exception:
@@ -560,14 +560,15 @@ def init_database():
                 po.status AS po_status,
                 po.tipo_envio,
                 s.nome AS fornecedor_nome,
+                COALESCE(poi.custo_real_po, poi.custo_unitario) AS custo_checkout,
                 poi.custo_unitario,
                 poi.quantidade AS qty_compra,
-                (poi.custo_unitario * poi.quantidade) AS custo_total_linha,
+                (COALESCE(poi.custo_real_po, poi.custo_unitario) * poi.quantidade) AS custo_total_linha,
                 poi.portes_rateados,
                 poi.impostos_rateados,
-                (poi.custo_unitario * poi.quantidade + COALESCE(poi.portes_rateados, 0) + COALESCE(poi.impostos_rateados, 0)) AS custo_real_compra,
+                (COALESCE(poi.custo_real_po, poi.custo_unitario) * poi.quantidade + COALESCE(poi.portes_rateados, 0) + COALESCE(poi.impostos_rateados, 0)) AS custo_real_compra,
                 (COALESCE(o.valor_total_sem_impostos, 0) - COALESCE(o.comissao_sem_impostos, 0)
-                 - (poi.custo_unitario * poi.quantidade + COALESCE(poi.portes_rateados, 0) + COALESCE(poi.impostos_rateados, 0))) AS margem_real_linha
+                 - (COALESCE(poi.custo_real_po, poi.custo_unitario) * poi.quantidade + COALESCE(poi.portes_rateados, 0) + COALESCE(poi.impostos_rateados, 0))) AS margem_real_linha
             FROM orders o
             LEFT JOIN purchase_order_items poi ON poi.order_id = o.id
             LEFT JOIN purchase_orders po ON po.id = poi.purchase_order_id
@@ -1117,7 +1118,17 @@ def init_database():
     try:
         r = conn.execute("DESCRIBE rma_claims").fetchall()
         cols_rma = [c[0] for c in r]
-        for col, ctype in [("disposition", "TEXT"), ("supplier_accepts_return", "INTEGER DEFAULT 1")]:
+        for col, ctype in [
+            ("disposition", "TEXT"),
+            ("supplier_accepts_return", "INTEGER DEFAULT 1"),
+            ("workflow_phase", "TEXT DEFAULT 'intervencao_compras'"),
+            ("purchase_order_id", "INTEGER"),
+            ("payment_was_made", "INTEGER DEFAULT 0"),
+            ("payment_blocked_at", "TIMESTAMP"),
+            ("credit_note_numero", "TEXT"),
+            ("credit_note_tipo", "TEXT"),
+            ("resolved_at", "TIMESTAMP"),
+        ]:
             if col not in cols_rma:
                 conn.execute(f"ALTER TABLE rma_claims ADD COLUMN {col} {ctype}")
     except Exception:
@@ -1381,6 +1392,7 @@ def init_database():
         for col, ctype in [
             ("supplier_order_id", "TEXT"),
             ("invoice_pdf_url",   "TEXT"),
+            ("payment_blocked",  "INTEGER DEFAULT 0"),
         ]:
             if col not in cols_po6:
                 conn.execute(f"ALTER TABLE purchase_orders ADD COLUMN {col} {ctype}")
@@ -1438,6 +1450,196 @@ def init_database():
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+
+    # ── Migrações Fase 7: InvoiceReviewModal — campos decomposição + NC ─────────
+
+    # supplier_invoices: decomposição valor + vencimento + código divergência
+    try:
+        r = conn.execute("DESCRIBE supplier_invoices").fetchall()
+        cols_si7 = [c[0] for c in r]
+        for col, ctype in [
+            ("valor_base",       "DOUBLE"),
+            ("valor_iva",        "DOUBLE"),
+            ("valor_portes",     "DOUBLE"),
+            ("data_vencimento",  "DATE"),
+            ("divergence_code",  "TEXT"),
+        ]:
+            if col not in cols_si7:
+                conn.execute(f"ALTER TABLE supplier_invoices ADD COLUMN {col} {ctype}")
+    except Exception:
+        pass
+
+    # supplier_credit_notes: notas de crédito associadas a faturas
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS supplier_credit_notes (
+            id           INTEGER PRIMARY KEY,
+            invoice_id   INTEGER NOT NULL,
+            empresa_id   INTEGER,
+            supplier_id  INTEGER,
+            nc_ref       TEXT NOT NULL,
+            nc_date      DATE,
+            valor        DOUBLE NOT NULL,
+            notas        TEXT,
+            aprovada     BOOLEAN DEFAULT FALSE,
+            data_criacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    try:
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_nc_invoice ON supplier_credit_notes(invoice_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_nc_supplier ON supplier_credit_notes(supplier_id)")
+    except Exception:
+        pass
+
+    # supplier_invoice_pos: índices (tabela já existe, apenas garante índices)
+    try:
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_inv_pos_invoice ON supplier_invoice_pos(invoice_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_inv_pos_po ON supplier_invoice_pos(purchase_order_id)")
+    except Exception:
+        pass
+
+    # ── MÓDULO FATURAÇÃO AT-COMPLIANT (Portugal) ─────────────────────────────
+    # Migração: billing_documents — campos AT (ATCUD, hash chain, QR, PDF)
+    try:
+        r = conn.execute("DESCRIBE billing_documents").fetchall()
+        cols_bd = [c[0] for c in r]
+        for col, ctype in [
+            ("atcud",             "TEXT"),
+            ("hash_documento",    "TEXT"),
+            ("hash_anterior",     "TEXT"),
+            ("qrcode_data",       "TEXT"),
+            ("pdf_path",          "TEXT"),
+            ("num_certificacao",  "TEXT DEFAULT '0/AT'"),
+            ("hash_4chars",       "TEXT"),
+            ("customer_nif",      "TEXT"),
+            ("customer_address",  "TEXT"),
+            ("vat_breakdown",     "TEXT"),
+            ("payment_terms",     "TEXT"),
+            ("reference_doc",     "TEXT"),
+            ("notes",             "TEXT"),
+            ("customer_name",     "TEXT"),
+            ("sales_order_id_nullable", "INTEGER"),
+        ]:
+            if col not in cols_bd:
+                try:
+                    conn.execute(f"ALTER TABLE billing_documents ADD COLUMN {col} {ctype}")
+                except Exception:
+                    pass
+        # customer_country já existe na tabela original; garantir
+        if "customer_country" not in cols_bd:
+            try:
+                conn.execute("ALTER TABLE billing_documents ADD COLUMN customer_country TEXT DEFAULT 'PT'")
+            except Exception:
+                pass
+        # Tornar sales_order_id opcional (a tabela original tem NOT NULL — não conseguimos alterar em DuckDB;
+        # usamos a nova coluna sales_order_id_nullable para documentos AT independentes de sales_orders)
+    except Exception as e:
+        print(f"Aviso migrações billing_documents AT: {e}")
+
+    # Migração: billing_series — campos AT (código validação, tipo doc, hash)
+    try:
+        r = conn.execute("DESCRIBE billing_series").fetchall()
+        cols_bs = [c[0] for c in r]
+        for col, ctype in [
+            ("codigo_validacao_at", "TEXT DEFAULT '0'"),
+            ("ano_exercicio",       "INTEGER"),
+            ("ultimo_hash",         "TEXT"),
+            ("tipo_doc",            "TEXT"),
+            ("ativo",               "BOOLEAN DEFAULT true"),
+        ]:
+            if col not in cols_bs:
+                try:
+                    conn.execute(f"ALTER TABLE billing_series ADD COLUMN {col} {ctype}")
+                except Exception:
+                    pass
+    except Exception as e:
+        print(f"Aviso migrações billing_series AT: {e}")
+
+    # Tabela at_rsa_keys (par RSA 1024-bit por empresa)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS at_rsa_keys (
+            id              INTEGER PRIMARY KEY,
+            empresa_id      INTEGER NOT NULL UNIQUE,
+            private_key_pem TEXT NOT NULL,
+            public_key_pem  TEXT NOT NULL,
+            created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    try:
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_at_rsa_empresa ON at_rsa_keys(empresa_id)")
+    except Exception:
+        pass
+
+    # Tabela saft_exports (histórico de exportações SAF-T PT)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS saft_exports (
+            id              INTEGER PRIMARY KEY,
+            empresa_id      INTEGER NOT NULL,
+            periodo_inicio  DATE NOT NULL,
+            periodo_fim     DATE NOT NULL,
+            num_documentos  INTEGER,
+            xml_hash        TEXT,
+            xml_path        TEXT,
+            exported_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    try:
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_saft_exports_empresa ON saft_exports(empresa_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_saft_exports_periodo ON saft_exports(periodo_inicio, periodo_fim)")
+    except Exception:
+        pass
+
+    # Tabela at_invoice_documents (documentos AT independentes — não ligados a sales_orders)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS at_invoice_documents (
+            id               INTEGER PRIMARY KEY,
+            empresa_id       INTEGER NOT NULL,
+            tipo_doc         TEXT NOT NULL,
+            serie_id         INTEGER NOT NULL,
+            numero_sequencial INTEGER NOT NULL,
+            numero_documento  TEXT NOT NULL,
+            status           TEXT NOT NULL DEFAULT 'emitido',
+            data_emissao     DATE NOT NULL,
+            customer_name    TEXT,
+            customer_nif     TEXT,
+            customer_country TEXT DEFAULT 'PT',
+            customer_address TEXT,
+            linhas           TEXT NOT NULL,
+            vat_breakdown    TEXT,
+            total_bruto      DOUBLE NOT NULL DEFAULT 0,
+            total_iva        DOUBLE NOT NULL DEFAULT 0,
+            total_liquido    DOUBLE NOT NULL DEFAULT 0,
+            hash_documento   TEXT,
+            hash_anterior    TEXT,
+            hash_4chars      TEXT,
+            atcud            TEXT,
+            qrcode_data      TEXT,
+            pdf_path         TEXT,
+            num_certificacao TEXT DEFAULT '0/AT',
+            payment_terms    TEXT,
+            reference_doc    TEXT,
+            notes            TEXT,
+            motivo_anulacao  TEXT,
+            anulado_em       TIMESTAMP,
+            created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(empresa_id, numero_documento)
+        )
+    """)
+    try:
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_at_docs_empresa ON at_invoice_documents(empresa_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_at_docs_tipo ON at_invoice_documents(tipo_doc)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_at_docs_status ON at_invoice_documents(status)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_at_docs_data ON at_invoice_documents(data_emissao)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_at_docs_serie ON at_invoice_documents(serie_id)")
+    except Exception:
+        pass
+
+    # Garantir directório para PDFs de faturas AT
+    try:
+        import os
+        pdf_dir = DB_PATH.parent / "invoices"
+        pdf_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
 
     conn.commit()
     conn.close()

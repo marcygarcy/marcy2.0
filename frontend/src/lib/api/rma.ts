@@ -1,5 +1,35 @@
 import apiClient from './client';
 
+/** Fases do workflow de incidências */
+export type IncidentPhase =
+  | 'intervencao_compras'
+  | 'reembolsos_pendentes'
+  | 'logistica_intercecao'
+  | 'auto_resolvida'
+  | 'perda_assumida';
+
+export interface IncidentItem {
+  id: number;
+  empresa_id: number;
+  sales_order_id: number | null;
+  supplier_id: number | null;
+  purchase_order_id: number | null;
+  refund_customer_value: number;
+  credit_note_supplier_value: number;
+  reason: string | null;
+  created_at: string | null;
+  external_order_id: string | null;
+  payment_was_made: number;
+  payment_blocked_at: string | null;
+  workflow_phase: string | null;
+  credit_note_numero: string | null;
+  credit_note_tipo: string | null;
+  supplier_nome: string | null;
+  empresa_nome: string | null;
+  po_status: string | null;
+  po_total: number;
+}
+
 export interface RmaAlert {
   id: number;
   empresa_id: number;
@@ -53,6 +83,42 @@ export const rmaApi = {
     external_order_id?: string;
   }): Promise<{ id: number; status: string; message: string }> => {
     const { data } = await apiClient.post('/api/v1/rma/register-refund', body);
+    return data;
+  },
+
+  // ── Incidências (workflow por fase) ─────────────────────────────────────
+  listIncidents: async (phase: IncidentPhase, empresaId?: number): Promise<IncidentItem[]> => {
+    const s = new URLSearchParams({ phase });
+    if (empresaId != null) s.append('empresa_id', String(empresaId));
+    const { data } = await apiClient.get<IncidentItem[]>(`/api/v1/rma/incidents?${s}`);
+    return data;
+  },
+
+  fornecedorAceitou: async (incidentId: number, paymentWasMade: boolean): Promise<{ success: boolean; workflow_phase?: string; error?: string }> => {
+    const { data } = await apiClient.post(`/api/v1/rma/incidents/${incidentId}/fornecedor-aceitou`, { payment_was_made: paymentWasMade });
+    return data;
+  },
+
+  fornecedorRecusou: async (incidentId: number): Promise<{ success: boolean; workflow_phase?: string; error?: string }> => {
+    const { data } = await apiClient.post(`/api/v1/rma/incidents/${incidentId}/fornecedor-recusou`);
+    return data;
+  },
+
+  registarNC: async (
+    incidentId: number,
+    payload: { numero_nc: string; valor: number; tipo: 'transferencia' | 'credito_conta' }
+  ): Promise<{ success: boolean; workflow_phase?: string; error?: string }> => {
+    const { data } = await apiClient.post(`/api/v1/rma/incidents/${incidentId}/registar-nc`, payload);
+    return data;
+  },
+
+  intercecaoSucesso: async (incidentId: number): Promise<{ success: boolean; workflow_phase?: string; error?: string }> => {
+    const { data } = await apiClient.post(`/api/v1/rma/incidents/${incidentId}/intercecao-sucesso`);
+    return data;
+  },
+
+  perdaAssumida: async (incidentId: number, valorImparidade?: number): Promise<{ success: boolean; workflow_phase?: string; valor_imparidade?: number; error?: string }> => {
+    const { data } = await apiClient.post(`/api/v1/rma/incidents/${incidentId}/perda-assumida`, valorImparidade != null ? { valor_imparidade: valorImparidade } : {});
     return data;
   },
 };

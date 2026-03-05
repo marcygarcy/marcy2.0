@@ -496,6 +496,25 @@ class PurchaseOrderService:
         self.conn.commit()
         return True
 
+    def delete_draft_po(self, purchase_order_id: int) -> Dict[str, Any]:
+        """
+        Apaga uma PO em estado Draft e os seus itens (Opção B: vendas não são alteradas).
+        Devolve {"success": True} ou {"success": False, "error": "..."}.
+        """
+        row = self.conn.execute(
+            "SELECT id, status FROM purchase_orders WHERE id = ?",
+            [purchase_order_id],
+        ).fetchone()
+        if not row:
+            return {"success": False, "error": "Ordem de compra não encontrada"}
+        _id, status = row
+        if (status or "").strip() != "Draft":
+            return {"success": False, "error": "Só é possível apagar ordens em estado Draft."}
+        self.conn.execute("DELETE FROM purchase_order_items WHERE purchase_order_id = ?", [purchase_order_id])
+        self.conn.execute("DELETE FROM purchase_orders WHERE id = ?", [purchase_order_id])
+        self.conn.commit()
+        return {"success": True}
+
     def get_pending_sales_orders(self, empresa_id: int, limit: int = 500) -> List[Dict[str, Any]]:
         """Vendas (orders) que ainda não estão em nenhum purchase_order_item."""
         q = """

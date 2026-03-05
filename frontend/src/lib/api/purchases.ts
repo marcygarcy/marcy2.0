@@ -166,8 +166,13 @@ export interface CheckoutDetail {
     sku_fornecedor: string | null;
     quantidade: number;
     custo_unitario: number;
+    custo_checkout: number;
     portes_rateados: number;
     impostos_rateados: number;
+    sale_value: number | null;
+    margem_linha: number | null;
+    numero_pedido: string | null;
+    ean: string | null;
   }>;
 }
 
@@ -266,6 +271,14 @@ export const purchasesApi = {
     const { data } = await apiClient.patch<{ success: boolean }>(
       `/api/v1/purchases/orders/${purchaseOrderId}`,
       { status }
+    );
+    return data;
+  },
+
+  /** Apaga uma PO em Draft e os seus itens. Vendas não são alteradas. */
+  deletePurchaseOrder: async (purchaseOrderId: number): Promise<{ success: boolean }> => {
+    const { data } = await apiClient.delete<{ success: boolean }>(
+      `/api/v1/purchases/orders/${purchaseOrderId}`
     );
     return data;
   },
@@ -381,6 +394,31 @@ export const purchasesApi = {
     params.append('limit', String(limit));
     params.append('offset', String(offset));
     const { data } = await apiClient.get<{ items: PurchaseOrder[]; total: number; limit: number; offset: number }>(`/api/v1/purchases/drafts?${params}`);
+    return data;
+  },
+
+  /** Actualiza quantidade e/ou custo unitário de um item de PO (grava custo_real_po). */
+  updatePoItem: async (
+    poId: number,
+    itemId: number,
+    body: { quantidade?: number; custo_unitario?: number },
+  ): Promise<{ success: boolean; total_base: number }> => {
+    const { data } = await apiClient.patch<{ success: boolean; total_base: number }>(
+      `/api/v1/purchases/orders/${poId}/items/${itemId}`,
+      body,
+    );
+    return data;
+  },
+
+  /** Adiciona itens de vendas pendentes à PO (apenas Draft). */
+  addItemsToPo: async (
+    poId: number,
+    pendingItemIds: number[],
+  ): Promise<{ success: boolean; added: number; total_base: number; error?: string }> => {
+    const { data } = await apiClient.post<{ success: boolean; added: number; total_base: number; error?: string }>(
+      `/api/v1/purchases/orders/${poId}/add-items`,
+      { pending_item_ids: pendingItemIds },
+    );
     return data;
   },
 };

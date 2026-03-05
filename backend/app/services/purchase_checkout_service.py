@@ -137,26 +137,49 @@ class PurchaseCheckoutService:
         ]
         po = dict(zip(cols, po_row))
 
-        # Itens
+        # Itens (com sale_value, margem por linha e EAN — EAN de poi ou de master_sku_bridge)
+        empresa_id = po.get("empresa_id")
         items_rows = self.conn.execute(
             """
             SELECT poi.id, poi.purchase_order_id, poi.sales_order_item_id, poi.sku_marketplace, poi.sku_fornecedor,
-                   poi.quantidade, poi.custo_unitario, poi.portes_rateados, poi.impostos_rateados
+                   poi.quantidade, poi.custo_unitario,
+                   COALESCE(poi.custo_real_po, poi.custo_unitario) AS custo_checkout,
+                   poi.portes_rateados, poi.impostos_rateados,
+                   o.valor_transferido_loja AS sale_value,
+                   o.numero_pedido,
+                   COALESCE(poi.ean,
+                       (SELECT msb.ean FROM master_sku_bridge msb
+                        WHERE msb.empresa_id = ? AND msb.ean IS NOT NULL AND msb.ean != ''
+                          AND (msb.sku_global = poi.sku_marketplace OR msb.ref_fornecedor_1 = poi.sku_fornecedor)
+                        LIMIT 1)
+                   ) AS ean
             FROM purchase_order_items poi
+            LEFT JOIN orders o ON o.id = poi.order_id AND poi.order_id > 0
             WHERE poi.purchase_order_id = ?
             ORDER BY poi.id
             """,
-            [purchase_order_id],
+            [empresa_id, purchase_order_id],
         ).fetchall()
-        po["items"] = [
-            {
-                "id": r[0], "purchase_order_id": r[1], "sales_order_item_id": r[2],
-                "sku_marketplace": r[3], "sku_fornecedor": r[4],
-                "quantidade": r[5], "custo_unitario": float(r[6] or 0),
-                "portes_rateados": float(r[7] or 0), "impostos_rateados": float(r[8] or 0),
-            }
-            for r in items_rows
-        ]
+        po["items"] = []
+        for r in items_rows:
+            item_id, po_id, so_item_id, sku_mp, sku_f, qty, custo_unit, custo_ck, portes_rat, imp_rat, sale_val, num_ped = r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9], r[10], r[11]
+            ean = r[12] if len(r) > 12 else None
+            custo_ck_f = float(custo_ck or custo_unit or 0)
+            qty_f = float(qty or 0)
+            portes_f = float(portes_rat or 0)
+            imp_f = float(imp_rat or 0)
+            custo_linha = custo_ck_f * qty_f + portes_f + imp_f
+            sale_f = float(sale_val) if sale_val is not None else None
+            margem = round(sale_f - custo_linha, 2) if sale_f is not None else None
+            po["items"].append({
+                "id": item_id, "purchase_order_id": po_id, "sales_order_item_id": so_item_id,
+                "sku_marketplace": sku_mp, "sku_fornecedor": sku_f,
+                "quantidade": qty_f, "custo_unitario": float(custo_unit or 0),
+                "custo_checkout": custo_ck_f,
+                "portes_rateados": portes_f, "impostos_rateados": imp_f,
+                "sale_value": sale_f, "numero_pedido": num_ped, "margem_linha": margem,
+                "ean": (ean.strip() if ean and isinstance(ean, str) else ean) or None,
+            })
 
         # Valores numéricos
         total_base = float(po.get("total_base") or 0)
@@ -316,6 +339,101 @@ class PurchaseCheckoutService:
         )
         self.conn.commit()
         return {"success": True, "status": "Ordered"}
+
+    def update_po_item(
+        self,
+        purchase_order_id: int,
+        item_id: int,
+        quantidade: Optional[float] = None,
+        custo_unitario: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """Actualiza quantidade e/ou custo unitário de um item e recalcula total_base da PO."""
+        row = self.conn.execute(
+            "SELECT quantidade, custo_unitario FROM purchase_order_items WHERE id = ? AND purchase_order_id = ?",
+            [item_id, purchase_order_id],
+        ).fetchone()
+        if not row:
+            return {"success": False, "error": "Item não encontrado"}
+        new_qty  = float(quantidade   if quantidade   is not None else row[0])
+        new_cost = float(custo_unitario if custo_unitario is not None else row[1])
+        self.conn.execute(
+            "UPDATE purchase_order_items SET quantidade = ?, custo_unitario = ?, custo_real_po = ? WHERE id = ?",
+            [new_qty, new_cost, new_cost, item_id],
+        )
+        total_base = self.conn.execute(
+            "SELECT COALESCE(SUM(quantidade * custo_unitario), 0) FROM purchase_order_items WHERE purchase_order_id = ?",
+            [purchase_order_id],
+        ).fetchone()[0]
+        self.conn.execute(
+            "UPDATE purchase_orders SET total_base = ? WHERE id = ?",
+            [float(total_base), purchase_order_id],
+        )
+        self.conn.commit()
+        return {"success": True, "total_base": float(total_base)}
+
+    def add_pending_items_to_po(self, po_id: int, pending_item_ids: List[int]) -> Dict[str, Any]:
+        """
+        Adiciona itens de pending_purchase_items a uma PO em Draft.
+        Cada item vira uma linha em purchase_order_items (order_id=0 até estar ligado).
+        Atualiza status do pending para 'in_po' e recalcula total_base da PO.
+        """
+        po = self.conn.execute(
+            "SELECT id, status FROM purchase_orders WHERE id = ?", [po_id]
+        ).fetchone()
+        if not po or (str(po[1]).strip() if po[1] else "") != "Draft":
+            return {"success": False, "error": "PO não encontrada ou não está em Draft"}
+
+        added = 0
+        for pid in pending_item_ids:
+            row = self.conn.execute(
+                """
+                SELECT sales_order_item_id, sku_marketplace, sku_supplier, quantity, cost_price_base
+                FROM pending_purchase_items WHERE id = ? AND status = 'pending'
+                """,
+                [pid],
+            ).fetchone()
+            if not row:
+                continue
+            soitem_id, sku_mp, sku_sup, qty, cost = row
+            if soitem_id is None:
+                continue
+            exists = self.conn.execute(
+                "SELECT 1 FROM purchase_order_items WHERE purchase_order_id = ? AND sales_order_item_id = ?",
+                [po_id, soitem_id],
+            ).fetchone()
+            if exists:
+                continue
+            next_id = int(self.conn.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM purchase_order_items").fetchone()[0])
+            self.conn.execute(
+                """
+                INSERT INTO purchase_order_items
+                  (id, purchase_order_id, order_id, sales_order_item_id,
+                   sku_marketplace, sku_fornecedor, quantidade, custo_unitario)
+                VALUES (?, ?, 0, ?, ?, ?, ?, ?)
+                """,
+                [next_id, po_id, soitem_id, sku_mp or "", sku_sup or "", float(qty or 0), float(cost or 0)],
+            )
+            self.conn.execute(
+                "UPDATE pending_purchase_items SET status = 'in_po' WHERE id = ?",
+                [pid],
+            )
+            added += 1
+
+        total_base = self.conn.execute(
+            "SELECT COALESCE(SUM(quantidade * COALESCE(custo_real_po, custo_unitario)), 0) FROM purchase_order_items WHERE purchase_order_id = ?",
+            [po_id],
+        ).fetchone()[0]
+        if total_base is None:
+            total_base = self.conn.execute(
+                "SELECT COALESCE(SUM(quantidade * custo_unitario), 0) FROM purchase_order_items WHERE purchase_order_id = ?",
+                [po_id],
+            ).fetchone()[0]
+        self.conn.execute(
+            "UPDATE purchase_orders SET total_base = ?, valor_base_artigos = ? WHERE id = ?",
+            [float(total_base), float(total_base), po_id],
+        )
+        self.conn.commit()
+        return {"success": True, "added": added, "total_base": float(total_base or 0)}
 
     def set_po_supplier(self, purchase_order_id: int, supplier_id: int) -> Dict[str, Any]:
         """Altera o fornecedor da PO. O fornecedor deve pertencer à mesma empresa da PO."""

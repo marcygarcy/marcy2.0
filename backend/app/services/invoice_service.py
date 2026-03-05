@@ -43,7 +43,13 @@ class InvoiceService:
         Lista todas as POs do fornecedor (Draft/Ordered/Paid) para mostrar no modal de seleção.
         Inclui invoice_ref existente (para mostrar aviso se já tem fatura).
         """
-        conds = ["po.supplier_id = ?", "po.status IN ('Draft','Ordered','Paid')", "(po.invoice_ref IS NULL OR po.invoice_ref = '')"]
+        conds = [
+            "po.supplier_id = ?",
+            "po.status IN ('Draft','Ordered','Paid')",
+            "(po.invoice_ref IS NULL OR po.invoice_ref = '')",
+            "NOT EXISTS (SELECT 1 FROM supplier_invoices si WHERE si.purchase_order_id = po.id)",
+            "NOT EXISTS (SELECT 1 FROM supplier_invoice_pos sip WHERE sip.purchase_order_id = po.id)",
+        ]
         params: list = [supplier_id]
         if empresa_id is not None:
             conds.append("po.empresa_id = ?")

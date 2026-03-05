@@ -295,6 +295,35 @@ class UpdateStatusBody(BaseModel):
     status: str
 
 
+class AddItemsToPoBody(BaseModel):
+    pending_item_ids: List[int]
+
+
+@router.post("/orders/{purchase_order_id}/add-items")
+async def add_items_to_po(purchase_order_id: int, body: AddItemsToPoBody):
+    """Adiciona itens de pending_purchase_items à PO (apenas em Draft)."""
+    svc = PurchaseCheckoutService()
+    try:
+        return svc.add_pending_items_to_po(purchase_order_id, body.pending_item_ids)
+    finally:
+        svc.close()
+
+
+class UpdatePoItemBody(BaseModel):
+    quantidade: Optional[float] = None
+    custo_unitario: Optional[float] = None
+
+
+@router.patch("/orders/{purchase_order_id}/items/{item_id}")
+async def update_po_item(purchase_order_id: int, item_id: int, body: UpdatePoItemBody):
+    """Actualiza quantidade e/ou custo unitário de um item e recalcula total_base da PO."""
+    svc = PurchaseCheckoutService()
+    try:
+        return svc.update_po_item(purchase_order_id, item_id, body.quantidade, body.custo_unitario)
+    finally:
+        svc.close()
+
+
 @router.patch("/orders/{purchase_order_id}")
 async def update_purchase_order_status(purchase_order_id: int, body: UpdateStatusBody):
     """Atualiza status da ordem de compra (Draft, Ordered, Paid)."""
@@ -304,6 +333,19 @@ async def update_purchase_order_status(purchase_order_id: int, body: UpdateStatu
         if not ok:
             raise HTTPException(status_code=400, detail="Status inválido. Use Draft, Ordered ou Paid.")
         return {"success": True, "status": body.status}
+    finally:
+        svc.close()
+
+
+@router.delete("/orders/{purchase_order_id}")
+async def delete_purchase_order(purchase_order_id: int):
+    """Apaga uma PO em estado Draft e os seus itens. Vendas não são alteradas (operador trata manualmente)."""
+    svc = PurchaseOrderService()
+    try:
+        result = svc.delete_draft_po(purchase_order_id)
+        if not result.get("success"):
+            raise HTTPException(status_code=400, detail=result.get("error", "Erro ao apagar"))
+        return result
     finally:
         svc.close()
 

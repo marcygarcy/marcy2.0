@@ -3,8 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { TrendingUp, ShoppingCart, Loader2, DollarSign, Package, BarChart3, List, ChevronDown, Upload, Globe, CheckCircle, FileText, XCircle, X, ExternalLink, Download, ShoppingBag, Truck, User, TrendingDown, AlertTriangle } from 'lucide-react';
-import { salesApi, type OrderWithMargin, type SalesMetrics, type TopProduct, type SalesOrderListItem, type SalesStats, type RecentWithMarginItem, type SalesOrderDetail } from '@/lib/api/sales';
+import { TrendingUp, ShoppingCart, Loader2, DollarSign, Package, BarChart3, BarChart2, List, ChevronDown, Upload, Globe, CheckCircle, FileText, XCircle, X, ExternalLink, Download, ShoppingBag, Truck, User, TrendingDown, AlertTriangle } from 'lucide-react';
+import { salesApi, type OrderWithMargin, type SalesMetrics, type TopProduct, type SalesOrderListItem, type SalesStats, type RecentWithMarginItem, type SalesOrderDetail, type SalesKpisResponse } from '@/lib/api/sales';
 import { billingApi, type ProformaData } from '@/lib/api/billing';
 import { ProformaPreview } from '@/components/billing/ProformaPreview';
 import { ordersApi, type Order } from '@/lib/api/orders';
@@ -13,6 +13,7 @@ import { marketplacesApi, type Marketplace } from '@/lib/api/marketplaces';
 import { useApp } from '@/context/AppContext';
 import { formatCurrency } from '@/lib/utils';
 import { Dropdown } from '@/components/ui/dropdown';
+import { EstadoVendasView } from './EstadoVendasView';
 
 const LIMIT = 50;
 
@@ -20,7 +21,7 @@ type ListagemSubTipo = 'vendas-margem' | 'orders';
 
 export function SalesList() {
   const { empresaSelecionada, marketplaceSelecionado } = useApp();
-  const [activeTab, setActiveTab] = useState<'kpis' | 'listagens' | 'explorer'>('kpis');
+  const [activeTab, setActiveTab] = useState<'kpis' | 'listagens' | 'explorer' | 'estado'>('kpis');
   const [listagemSubTipo, setListagemSubTipo] = useState<ListagemSubTipo>('vendas-margem');
   const [orders, setOrders] = useState<OrderWithMargin[]>([]);
   const [ordersSimples, setOrdersSimples] = useState<Order[]>([]);
@@ -35,6 +36,13 @@ export function SalesList() {
   const [page, setPage] = useState(0);
   const [dataInicio, setDataInicio] = useState<string>('');
   const [dataFim, setDataFim] = useState<string>('');
+
+  // KPIs por ano/mês (sales_orders)
+  const now = new Date();
+  const [kpisAno, setKpisAno] = useState(now.getFullYear());
+  const [kpisMes, setKpisMes] = useState(now.getMonth() + 1);
+  const [salesKpis, setSalesKpis] = useState<SalesKpisResponse | null>(null);
+  const [kpisLoading, setKpisLoading] = useState(false);
 
   // Sales Explorer (módulo sales_orders: import, list, stats)
   const [salesStats, setSalesStats] = useState<SalesStats | null>(null);
@@ -161,6 +169,26 @@ export function SalesList() {
   useEffect(() => {
     load();
   }, [empresaId, marketplaceId, page, dataInicio, dataFim]);
+
+  const loadSalesKpis = async () => {
+    setKpisLoading(true);
+    try {
+      const data = await salesApi.getSalesKpis({
+        ano: kpisAno,
+        mes: kpisMes,
+        empresa_id: empresaId ?? undefined,
+      });
+      setSalesKpis(data);
+    } catch {
+      setSalesKpis(null);
+    } finally {
+      setKpisLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'kpis') loadSalesKpis();
+  }, [activeTab, kpisAno, kpisMes, empresaId]);
 
   const loadOrdersSimples = async () => {
     if (listagemSubTipo !== 'orders') return;
@@ -351,8 +379,8 @@ export function SalesList() {
         </CardContent>
       </Card>
 
-      {/* Barra de abas: KPIs | Listagens | Explorer */}
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'kpis' | 'listagens' | 'explorer')}>
+      {/* Barra de abas: KPIs | Sales Explorer | Estado das vendas | Listagens */}
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'kpis' | 'listagens' | 'explorer' | 'estado')}>
         <TabsList className="bg-slate-800 border border-slate-600">
           <TabsTrigger value="kpis" className="data-[state=active]:bg-emerald-600 data-[state=active]:text-white">
             <BarChart3 className="w-4 h-4 mr-2" />
@@ -361,6 +389,10 @@ export function SalesList() {
           <TabsTrigger value="explorer" className="data-[state=active]:bg-amber-600 data-[state=active]:text-white">
             <Globe className="w-4 h-4 mr-2" />
             Sales Explorer
+          </TabsTrigger>
+          <TabsTrigger value="estado" className="data-[state=active]:bg-amber-600 data-[state=active]:text-white">
+            <BarChart2 className="w-4 h-4 mr-2" />
+            Estado das vendas
           </TabsTrigger>
           <div className="relative inline-block">
             <Dropdown
@@ -391,83 +423,158 @@ export function SalesList() {
           </div>
         </TabsList>
 
-        {/* Aba KPIs */}
+        {/* Aba KPIs (ano/mês, vendas acumuladas, mês, orders por estado, top 10, marketplaces) */}
         <TabsContent value="kpis" className="mt-6 space-y-6">
-          {metrics && (
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="flex items-center gap-2 text-slate-400 text-sm">
-                    <DollarSign className="w-4 h-4" />
-                    GMV
-                  </div>
-                  <p className="text-xl font-semibold text-white mt-1">{formatCurrency(metrics.gmv)}</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="flex items-center gap-2 text-slate-400 text-sm">
-                    <TrendingUp className="w-4 h-4" />
-                    Margem total
-                  </div>
-                  <p className="text-xl font-semibold text-emerald-400 mt-1">{formatCurrency(metrics.margem_contribuicao_total)}</p>
-                  <p className="text-xs text-slate-500">{metrics.margem_pct}%</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="flex items-center gap-2 text-slate-400 text-sm">
-                    <ShoppingCart className="w-4 h-4" />
-                    Linhas
-                  </div>
-                  <p className="text-xl font-semibold text-white mt-1">{metrics.num_linhas}</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="flex items-center gap-2 text-slate-400 text-sm">Comissão</div>
-                  <p className="text-xl font-semibold text-amber-400 mt-1">{formatCurrency(metrics.total_comissao)}</p>
-                </CardContent>
-              </Card>
-            </div>
-          )}
+          <div className="flex flex-wrap items-center gap-4 mb-4">
+            <label className="flex items-center gap-2 text-slate-400 text-sm">
+              Ano
+              <select
+                value={kpisAno}
+                onChange={(e) => setKpisAno(Number(e.target.value))}
+                className="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-white text-sm"
+              >
+                {[now.getFullYear(), now.getFullYear() - 1, now.getFullYear() - 2].map((y) => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
+            </label>
+            <label className="flex items-center gap-2 text-slate-400 text-sm">
+              Mês
+              <select
+                value={kpisMes}
+                onChange={(e) => setKpisMes(Number(e.target.value))}
+                className="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-white text-sm"
+              >
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
+                  <option key={m} value={m}>
+                    {new Date(2000, m - 1, 1).toLocaleDateString('pt-PT', { month: 'long' })}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
 
-          {topProducts.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Package className="w-5 h-5 text-emerald-400" />
-                  Top produtos por margem
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-slate-700">
-                        <th className="text-left py-2 px-2 text-slate-300 font-semibold">SKU</th>
-                        <th className="text-left py-2 px-2 text-slate-300 font-semibold">Produto</th>
-                        <th className="text-right py-2 px-2 text-slate-300 font-semibold">Qtd vendida</th>
-                        <th className="text-right py-2 px-2 text-slate-300 font-semibold">GMV</th>
-                        <th className="text-right py-2 px-2 text-slate-300 font-semibold">Margem total</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {topProducts.map((p, i) => (
-                        <tr key={p.sku + i} className="border-b border-slate-800">
-                          <td className="py-2 px-2 text-slate-300">{p.sku || '—'}</td>
-                          <td className="py-2 px-2 text-slate-400 max-w-[200px] truncate">{p.nome_produto || '—'}</td>
-                          <td className="py-2 px-2 text-right text-slate-300">{p.quantidade_vendida?.toFixed(0)}</td>
-                          <td className="py-2 px-2 text-right text-slate-300">{formatCurrency(p.gmv_produto)}</td>
-                          <td className="py-2 px-2 text-right text-emerald-400 font-medium">{formatCurrency(p.margem_total)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </CardContent>
-            </Card>
+          {kpisLoading ? (
+            <div className="flex items-center justify-center py-12 text-slate-400">
+              <Loader2 className="w-6 h-6 animate-spin mr-2" /> A carregar KPIs...
+            </div>
+          ) : salesKpis ? (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="flex items-center gap-2 text-slate-400 text-sm">
+                      <DollarSign className="w-4 h-4" />
+                      Vendas acumuladas (ano até fim do mês)
+                    </div>
+                    <p className="text-xl font-semibold text-white mt-1">{formatCurrency(salesKpis.vendas_acumuladas)}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="flex items-center gap-2 text-slate-400 text-sm">
+                      <TrendingUp className="w-4 h-4" />
+                      Vendas do mês
+                    </div>
+                    <p className="text-xl font-semibold text-emerald-400 mt-1">{formatCurrency(salesKpis.vendas_mes)}</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Orders no mês (por estado)</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                    <div className="p-3 rounded-lg bg-slate-800/60 border border-slate-600">
+                      <p className="text-slate-500 text-xs uppercase">Ativas</p>
+                      <p className="text-lg font-semibold text-white">{salesKpis.total_orders_ativas}</p>
+                    </div>
+                    <div className="p-3 rounded-lg bg-emerald-900/30 border border-emerald-700/50">
+                      <p className="text-slate-500 text-xs uppercase">Concluídas</p>
+                      <p className="text-lg font-semibold text-emerald-400">{salesKpis.orders_concluidas}</p>
+                    </div>
+                    <div className="p-3 rounded-lg bg-amber-900/30 border border-amber-700/50">
+                      <p className="text-slate-500 text-xs uppercase">Pendentes</p>
+                      <p className="text-lg font-semibold text-amber-400">{salesKpis.orders_pendentes}</p>
+                    </div>
+                    <div className="p-3 rounded-lg bg-red-900/30 border border-red-700/50">
+                      <p className="text-slate-500 text-xs uppercase">Canceladas</p>
+                      <p className="text-lg font-semibold text-red-400">{salesKpis.orders_canceladas}</p>
+                    </div>
+                    <div className="p-3 rounded-lg bg-slate-700/50 border border-slate-600">
+                      <p className="text-slate-500 text-xs uppercase">Reembolsadas</p>
+                      <p className="text-lg font-semibold text-slate-300">{salesKpis.orders_reembolsadas}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-sm">Marketplace com maior volume (€)</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-lg font-semibold text-white">{salesKpis.marketplace_maior_volume.nome}</p>
+                    <p className="text-2xl font-bold text-amber-400 mt-1">{formatCurrency(salesKpis.marketplace_maior_volume.volume ?? 0)}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-sm">Marketplace com mais orders</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-lg font-semibold text-white">{salesKpis.marketplace_mais_orders.nome}</p>
+                    <p className="text-2xl font-bold text-sky-400 mt-1">{salesKpis.marketplace_mais_orders.num_orders ?? 0} orders</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {salesKpis.top_10_produtos.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Package className="w-5 h-5 text-emerald-400" />
+                      Top 10 produtos mais vendidos (mês)
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-slate-700">
+                            <th className="text-left py-2 px-2 text-slate-300 font-semibold">SKU</th>
+                            <th className="text-left py-2 px-2 text-slate-300 font-semibold">Produto</th>
+                            <th className="text-right py-2 px-2 text-slate-300 font-semibold">Qtd vendida</th>
+                            <th className="text-right py-2 px-2 text-slate-300 font-semibold">GMV</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {salesKpis.top_10_produtos.map((p, i) => (
+                            <tr key={p.sku + i} className="border-b border-slate-800">
+                              <td className="py-2 px-2 text-slate-300 font-mono text-xs">{p.sku || '—'}</td>
+                              <td className="py-2 px-2 text-slate-400 max-w-[200px] truncate">{p.nome_produto || '—'}</td>
+                              <td className="py-2 px-2 text-right text-slate-300">{p.quantidade_vendida?.toFixed(0)}</td>
+                              <td className="py-2 px-2 text-right text-amber-300">{formatCurrency(p.gmv_produto)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </>
+          ) : (
+            <p className="text-slate-400 text-center py-8">Sem dados de KPIs para o período. Importe vendas no Sales Explorer.</p>
           )}
+        </TabsContent>
+
+        {/* Aba Estado das vendas (pipeline) */}
+        <TabsContent value="estado" className="mt-6">
+          <EstadoVendasView />
         </TabsContent>
 
         {/* Aba Listagens: conteúdo conforme opção do dropdown (Orders | Vendas com margem) */}

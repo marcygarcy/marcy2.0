@@ -1203,11 +1203,11 @@ function POsEFaturas({
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="flex items-center gap-2">
-                <FileText className="w-5 h-5 text-amber-400" />
-                Match PO ↔ Fatura
-              </CardTitle>
-              <p className="text-slate-400 text-sm mt-1">
+          <CardTitle className="flex items-center gap-2">
+            <FileText className="w-5 h-5 text-amber-400" />
+            Match PO ↔ Fatura
+          </CardTitle>
+          <p className="text-slate-400 text-sm mt-1">
                 Registe faturas de fornecedores (uma fatura pode cobrir múltiplas POs). Depois pode conciliar em Divergências.
               </p>
             </div>
@@ -1458,8 +1458,8 @@ function POsEFaturas({
                 <div className="grid grid-cols-2 gap-4">
                   <div className="flex flex-col gap-1">
                     <label className="text-xs text-slate-400">Nº Fatura *</label>
-                    <input
-                      type="text"
+              <input
+                type="text"
                       value={invForm.invoice_ref}
                       onChange={(e) => setInvForm((f) => ({ ...f, invoice_ref: e.target.value }))}
                       placeholder="Ex: FT 2026/0042"
@@ -1468,9 +1468,9 @@ function POsEFaturas({
                   </div>
                   <div className="flex flex-col gap-1">
                     <label className="text-xs text-slate-400">Valor total (€) *</label>
-                    <input
-                      type="number"
-                      step="0.01"
+              <input
+                type="number"
+                step="0.01"
                       value={invForm.invoice_amount}
                       onChange={(e) => setInvForm((f) => ({ ...f, invoice_amount: e.target.value }))}
                       placeholder="0.00"
@@ -1498,15 +1498,15 @@ function POsEFaturas({
                   </div>
                 </div>
                 <label className="flex items-center gap-2 text-slate-300 text-sm mt-3">
-                  <input
-                    type="checkbox"
+                <input
+                  type="checkbox"
                     checked={invForm.post_to_ledger}
                     onChange={(e) => setInvForm((f) => ({ ...f, post_to_ledger: e.target.checked }))}
-                    className="rounded"
-                  />
+                  className="rounded"
+                />
                   Lançar na Conta Corrente do fornecedor
-                </label>
-              </div>
+              </label>
+            </div>
 
               {invMsg && (
                 <div className={`px-4 py-2 rounded-lg text-sm ${invMsg.startsWith('Erro') ? 'bg-red-900/30 text-red-400' : 'bg-emerald-900/30 text-emerald-400'}`}>
@@ -1519,15 +1519,15 @@ function POsEFaturas({
             <div className="flex items-center justify-between px-6 py-4 border-t border-slate-700 bg-slate-900/60 rounded-b-xl">
               <p className="text-xs text-slate-500">* Campos obrigatórios. Selecione pelo menos uma PO.</p>
               <div className="flex gap-2">
-                <button
-                  type="button"
+              <button
+                type="button"
                   onClick={() => setInvModal(false)}
                   className="px-4 py-2 rounded-lg bg-slate-700 text-slate-300 hover:bg-slate-600 text-sm"
-                >
+              >
                   Cancelar
-                </button>
-                <button
-                  type="button"
+              </button>
+              <button
+                type="button"
                   onClick={handleCreateInvoice}
                   disabled={invSaving || !invCanSubmit}
                   className="px-4 py-2 rounded-lg bg-amber-600 text-white font-medium hover:bg-amber-500 disabled:opacity-50 text-sm flex items-center gap-2"

@@ -7,7 +7,7 @@ import { marketplacesApi, Marketplace } from '@/lib/api/marketplaces';
 import {
   Building2, ChevronDown, ChevronRight, Store, CreditCard, FolderOpen,
   Users, TrendingUp, ShoppingCart, Landmark, MapPin, Package, RotateCcw,
-  Boxes, DollarSign, Zap, Globe, Link2, FileText, BookOpen, Settings2,
+  Boxes, DollarSign, Zap, Globe, Link2, FileText, BookOpen, Settings2, Receipt,
 } from 'lucide-react';
 import { invoiceValidationApi } from '@/lib/api/invoiceValidation';
 
@@ -78,6 +78,7 @@ const MARKETPLACES_HARDCODED: Record<number, Marketplace[]> = {
 const MODULO_RECEBIMENTOS = { id: 'recebimentos-marketplaces', nome: 'Recebimentos', icone: 'CreditCard' };
 const MODULO_VENDAS       = { id: 'vendas-margem',            nome: 'Vendas e Margem',     icone: 'TrendingUp' };
 const MODULO_BILLING      = { id: 'billing',                 nome: 'Gestão Comercial',   icone: 'FileText' };
+const MODULO_FATURACAO    = { id: 'faturacao',               nome: 'Faturação AT',        icone: 'Receipt' };
 const MODULO_COMPRAS      = { id: 'compras',                  nome: 'Compras',             icone: 'ShoppingCart' };
 const MODULO_RMA          = { id: 'rma',                      nome: 'Devoluções (RMA)',    icone: 'RotateCcw' };
 const MODULO_LOGISTICA    = { id: 'logistics',                nome: 'Gestão de Escritório', icone: 'Package' };
@@ -351,6 +352,15 @@ export function Sidebar() {
             active={isActive(MODULO_BILLING.id)}
             activeColor="bg-amber-600 text-white"
             onClick={() => setModuloSelecionado(MODULO_BILLING)}
+          />
+
+          {/* Faturação AT */}
+          <NavItem
+            icon={<Receipt className="w-4 h-4 shrink-0" />}
+            label="Faturação AT"
+            active={isActive(MODULO_FATURACAO.id)}
+            activeColor="bg-amber-600 text-white"
+            onClick={() => setModuloSelecionado(MODULO_FATURACAO)}
           />
 
           {/* Compras */}
