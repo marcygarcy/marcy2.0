@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { User, CreditCard, Truck, Loader2, Plus, Pencil, Download, Upload, Key } from 'lucide-react';
+import { useApp } from '@/context/AppContext';
 import { suppliersApi, type SupplierMaster, type OfficeLocation } from '@/lib/api/suppliers';
 import { empresasApi, type Empresa } from '@/lib/api/empresas';
 import { paymentMethodsApi, type PaymentMethod } from '@/lib/api/paymentMethods';
@@ -16,6 +17,7 @@ const PRAZO_PAGAMENTO_OPTS = ['Antecipado', '7 dias', '30 dias'];
 const SHIPPING_TYPE_OPTS = ['Dropshipping', 'Escritorio'];
 
 export function SupplierMasterView() {
+  const { dadosMestresNavigation, setDadosMestresNavigation } = useApp();
   const [empresas, setEmpresas] = useState<Empresa[]>([]);
   const [list, setList] = useState<SupplierMaster[]>([]);
   const [loading, setLoading] = useState(false);
@@ -53,6 +55,15 @@ export function SupplierMasterView() {
       setForm({ empresa_id: undefined, nome: '', ativo: true });
     }
   }, [selectedId]);
+
+  // Navegação one-shot a partir do Checkout (Compras): abrir ficha do fornecedor na aba Acessos
+  useEffect(() => {
+    if (dadosMestresNavigation?.supplierId) {
+      setSelectedId(dadosMestresNavigation.supplierId);
+      setTabForm(dadosMestresNavigation.tab ?? 'acessos');
+      setDadosMestresNavigation(null);
+    }
+  }, [dadosMestresNavigation?.supplierId]);
 
   useEffect(() => {
     if (!empresaId) { setOffices([]); return; }

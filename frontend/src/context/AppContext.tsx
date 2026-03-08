@@ -34,15 +34,23 @@ export interface FinancasNavigation {
   supplierId?: number;
 }
 
+/** Navegação one-shot para Dados Mestres > Fornecedores: abrir ficha do fornecedor e opcionalmente a aba (ex.: acessos) */
+export interface DadosMestresNavigation {
+  supplierId: number;
+  tab?: 'geral' | 'fiscal' | 'logistica' | 'acessos';
+}
+
 interface AppContextType {
   moduloSelecionado: Modulo | null;
   empresaSelecionada: Empresa | null;
   marketplaceSelecionado: Marketplace | null;
   financasNavigation: FinancasNavigation | null;
+  dadosMestresNavigation: DadosMestresNavigation | null;
   setModuloSelecionado: (modulo: Modulo | null) => void;
   setEmpresaSelecionada: (empresa: Empresa | null) => void;
   setMarketplaceSelecionado: (marketplace: Marketplace | null) => void;
   setFinancasNavigation: (nav: FinancasNavigation | null) => void;
+  setDadosMestresNavigation: (nav: DadosMestresNavigation | null) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -74,6 +82,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [empresaSelecionada, setEmpresaSelecionadaState] = useState<Empresa | null>(DEFAULT_EMPRESA);
   const [marketplaceSelecionado, setMarketplaceSelecionadoState] = useState<Marketplace | null>(DEFAULT_MARKETPLACE);
   const [financasNavigation, setFinancasNavigationState] = useState<FinancasNavigation | null>(null);
+  const [dadosMestresNavigation, setDadosMestresNavigationState] = useState<DadosMestresNavigation | null>(null);
 
   // Carregar do localStorage ao inicializar (apenas no browser)
   useEffect(() => {
@@ -164,6 +173,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setFinancasNavigationState(nav);
   };
 
+  const setDadosMestresNavigation = (nav: DadosMestresNavigation | null) => {
+    setDadosMestresNavigationState(nav);
+  };
+
   return (
     <AppContext.Provider
       value={{
@@ -171,10 +184,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         empresaSelecionada,
         marketplaceSelecionado,
         financasNavigation,
+        dadosMestresNavigation,
         setModuloSelecionado,
         setEmpresaSelecionada,
         setMarketplaceSelecionado,
         setFinancasNavigation,
+        setDadosMestresNavigation,
       }}
     >
       {children}
