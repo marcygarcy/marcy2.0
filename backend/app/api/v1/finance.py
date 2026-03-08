@@ -556,6 +556,7 @@ class CreateInvoiceBody(BaseModel):
     po_ids: List[int]
     notas: Optional[str] = None
     post_to_ledger: bool = True
+    document_type: Optional[str] = "Fatura"  # Fatura | NE | Proforma
 
 
 @router.post("/invoices")
@@ -578,6 +579,7 @@ async def create_supplier_invoice(body: CreateInvoiceBody):
             po_ids=body.po_ids,
             notas=body.notas,
             post_to_ledger=body.post_to_ledger,
+            document_type=body.document_type or "Fatura",
         )
         return {"success": True, **result}
     finally:

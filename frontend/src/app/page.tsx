@@ -24,11 +24,12 @@ import { SystemConfigView } from '@/components/master/SystemConfigView';
 import { AutomationStatusPage } from '@/components/automation/AutomationStatusPage';
 import { FinanceGlobalView } from '@/components/finance/FinanceGlobalView';
 import { OfficeLogisticsView } from '@/components/logistics/OfficeLogisticsView';
-import { BillingView } from '@/components/billing/BillingView';
+import { ComercialView } from '@/components/comercial/ComercialView';
 import FaturacaoView from '@/components/faturacao/FaturacaoView';
 import { RMAView } from '@/components/rma/RMAView';
 import { OfficeStockView } from '@/components/office/OfficeStockView';
 import { DocsView } from '@/components/docs/DocsView';
+import { GestaoTerceirosView } from '@/components/terceiros/GestaoTerceirosView';
 import { BankStatement } from '@/components/bank/BankStatement';
 import { SalesChart } from '@/components/dashboard/SalesChart';
 import { TopProductsCard } from '@/components/dashboard/TopProductsCard';
@@ -121,6 +122,7 @@ export default function Home() {
   const isModuloOfficeStock = moduloSelecionado?.id === 'office-stock';
   const isModuloDocs = moduloSelecionado?.id === 'documentacao';
   const isModuloSystemConfig = moduloSelecionado?.id === 'system-config';
+  const isModuloGestaoTerceiros = moduloSelecionado?.id === 'gestao-terceiros';
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white flex">
@@ -157,13 +159,15 @@ export default function Home() {
         ) : isModuloFaturacao ? (
           <FaturacaoView />
         ) : isModuloBilling ? (
-          <BillingView />
+          <ComercialView />
         ) : isModuloOfficeStock ? (
           <OfficeStockView />
         ) : isModuloDocs ? (
           <DocsView />
         ) : isModuloSystemConfig ? (
           <SystemConfigView />
+        ) : isModuloGestaoTerceiros ? (
+          <GestaoTerceirosView />
         ) : (
         <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>

@@ -15,6 +15,7 @@ import { purchasesApi, type PurchaseOrderWithInvoiceStatus } from '@/lib/api/pur
 import { empresasApi, type Empresa } from '@/lib/api/empresas';
 import { useApp } from '@/context/AppContext';
 import { formatCurrency } from '@/lib/utils';
+import { MSG_EM_DESENVOLVIMENTO } from '@/lib/constants';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -636,7 +637,7 @@ function LedgerView({
       setForm(f => ({ ...f, valor: '', num_doc: '', notas: '' }));
       handleGerar();
     } catch {
-      setMsg('Erro ao criar lançamento.');
+      setMsg(MSG_EM_DESENVOLVIMENTO);
     } finally {
       setSaving(false);
     }
@@ -953,7 +954,7 @@ function Discrepancies({ empresaId }: { empresaId?: number }) {
       setMsg(`PO #${poId}: ${r.status}${r.discrepancy_amount ? ` (diff: ${fmt(r.discrepancy_amount)})` : ''}`);
       load();
     } catch {
-      setMsg(`Erro ao processar PO #${poId}`);
+      setMsg(MSG_EM_DESENVOLVIMENTO);
     } finally {
       setMatchingId(null);
     }
@@ -1071,7 +1072,14 @@ function POsEFaturas({
   const [invOpenPos, setInvOpenPos] = useState<OpenPoForInvoice[]>([]);
   const [invLoadingPos, setInvLoadingPos] = useState(false);
   const [invSelectedPos, setInvSelectedPos] = useState<Set<number>>(new Set());
-  const [invForm, setInvForm] = useState({ invoice_ref: '', invoice_amount: '', invoice_date: todayStr, notas: '', post_to_ledger: true });
+  const [invForm, setInvForm] = useState<{
+    invoice_ref: string;
+    invoice_amount: string;
+    invoice_date: string;
+    notas: string;
+    post_to_ledger: boolean;
+    document_type: 'Fatura' | 'NE' | 'Proforma';
+  }>({ invoice_ref: '', invoice_amount: '', invoice_date: todayStr, notas: '', post_to_ledger: true, document_type: 'Fatura' });
   const [invSaving, setInvSaving] = useState(false);
   const [invMsg, setInvMsg] = useState<string | null>(null);
 
@@ -1128,7 +1136,7 @@ function POsEFaturas({
 
   const openInvoiceModal = (po?: PurchaseOrderWithInvoiceStatus) => {
     setInvMsg(null);
-    setInvForm({ invoice_ref: '', invoice_amount: '', invoice_date: todayStr, notas: '', post_to_ledger: true });
+    setInvForm({ invoice_ref: '', invoice_amount: '', invoice_date: todayStr, notas: '', post_to_ledger: true, document_type: 'Fatura' });
     setInvOpenPos([]);
     if (po) {
       setInvEmpresaId(po.empresa_id ?? '');
@@ -1164,14 +1172,15 @@ function POsEFaturas({
         po_ids: Array.from(invSelectedPos),
         notas: invForm.notas.trim() || undefined,
         post_to_ledger: invForm.post_to_ledger,
+        document_type: invForm.document_type,
       };
       const res = await financeApi.createSupplierInvoice(body);
       const ledgerMsg = res.ledger_created ? ' e lançada na Conta Corrente' : '';
       setInvMsg(`Fatura registada${ledgerMsg} — ${res.po_count} PO(s) associadas.`);
       load();
       setInvModal(false);
-    } catch (e: unknown) {
-      setInvMsg((e as Error)?.message ?? 'Erro ao registar fatura.');
+    } catch {
+      setInvMsg(MSG_EM_DESENVOLVIMENTO);
     } finally {
       setInvSaving(false);
     }
@@ -1188,8 +1197,8 @@ function POsEFaturas({
       });
       setMsg('Lançamento criado na conta corrente.');
       load();
-    } catch (e: unknown) {
-      setMsg((e as Error)?.message ?? 'Erro ao enviar para conta corrente.');
+    } catch {
+      setMsg(MSG_EM_DESENVOLVIMENTO);
     } finally {
       setSaving(false);
     }
@@ -1452,17 +1461,29 @@ function POsEFaturas({
                 )}
               </div>
 
-              {/* Secção 3: Dados da fatura */}
+              {/* Secção 3: Dados do documento (fatura / NE / proforma) */}
               <div className="border-t border-slate-700 pt-4">
-                <span className="text-xs text-slate-400 uppercase tracking-wide block mb-3">Dados da fatura</span>
+                <span className="text-xs text-slate-400 uppercase tracking-wide block mb-3">Dados do documento</span>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="flex flex-col gap-1">
-                    <label className="text-xs text-slate-400">Nº Fatura *</label>
+                    <label className="text-xs text-slate-400">Tipo de documento</label>
+                    <select
+                      value={invForm.document_type}
+                      onChange={(e) => setInvForm((f) => ({ ...f, document_type: e.target.value as 'Fatura' | 'NE' | 'Proforma' }))}
+                      className="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-white text-sm"
+                    >
+                      <option value="Fatura">Fatura</option>
+                      <option value="NE">NE (Nota de Envio)</option>
+                      <option value="Proforma">Proforma</option>
+                    </select>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs text-slate-400">Nº documento *</label>
               <input
                 type="text"
                       value={invForm.invoice_ref}
                       onChange={(e) => setInvForm((f) => ({ ...f, invoice_ref: e.target.value }))}
-                      placeholder="Ex: FT 2026/0042"
+                      placeholder={invForm.document_type === 'Fatura' ? 'Ex: FT 2026/0042' : 'Ex: NE 001 ou Proforma 123'}
                       className="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-white text-sm"
                     />
                   </div>
@@ -1506,10 +1527,13 @@ function POsEFaturas({
                 />
                   Lançar na Conta Corrente do fornecedor
               </label>
+                <p className="text-xs text-slate-500 mt-2">
+                  Se já pagou ao fornecedor (adiantamento), ao registar a fatura e associá-la à PO o match ligará automaticamente o pagamento à fatura.
+                </p>
             </div>
 
               {invMsg && (
-                <div className={`px-4 py-2 rounded-lg text-sm ${invMsg.startsWith('Erro') ? 'bg-red-900/30 text-red-400' : 'bg-emerald-900/30 text-emerald-400'}`}>
+                <div className={`px-4 py-2 rounded-lg text-sm ${invMsg === MSG_EM_DESENVOLVIMENTO ? 'bg-amber-900/30 text-amber-400' : invMsg.startsWith('Erro') ? 'bg-red-900/30 text-red-400' : 'bg-emerald-900/30 text-emerald-400'}`}>
                   {invMsg}
                 </div>
               )}
@@ -1636,7 +1660,7 @@ function PaymentsView({ empresaId }: { empresaId?: number }) {
       loadAntecipado();
       if (subTab === 'sugestao') loadSugestao();
     } catch (e) {
-      alert((e as Error)?.message ?? 'Erro ao confirmar pagamentos.');
+      alert(MSG_EM_DESENVOLVIMENTO);
     } finally {
       setConfirming(false);
     }
@@ -1903,7 +1927,7 @@ function PaymentsView({ empresaId }: { empresaId?: number }) {
                       a.click();
                       URL.revokeObjectURL(url);
                     } catch (e) {
-                      alert((e as Error)?.message ?? 'Erro ao exportar.');
+                      alert(MSG_EM_DESENVOLVIMENTO);
                     } finally {
                       setExportingExcel(false);
                     }

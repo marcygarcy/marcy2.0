@@ -2,15 +2,18 @@
 
 import React, { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { billingApi, type BillingDocumentItem, type ProformaData } from '@/lib/api/billing';
 import { formatCurrency } from '@/lib/utils';
-import { FileText, Loader2, Eye, XCircle, RefreshCw } from 'lucide-react';
+import { FileText, Loader2, Eye, XCircle, RefreshCw, Calculator } from 'lucide-react';
 import { ProformaPreview } from './ProformaPreview';
+import { BatchInvoicingView } from './BatchInvoicingView';
 import { useApp } from '@/context/AppContext';
 import { empresasApi, type Empresa } from '@/lib/api/empresas';
 
 export function BillingView() {
   const { empresaSelecionada } = useApp();
+  const [activeTab, setActiveTab] = useState<'documentos' | 'batch'>('documentos');
   const [empresas, setEmpresas] = useState<Empresa[]>([]);
   const [empresaFilter, setEmpresaFilter] = useState<number | ''>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
@@ -84,6 +87,23 @@ export function BillingView() {
         <h1 className="text-2xl font-bold">Gestão Comercial</h1>
       </div>
 
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'documentos' | 'batch')}>
+        <TabsList className="bg-slate-800 p-1">
+          <TabsTrigger value="documentos" className="data-[state=active]:bg-amber-600 data-[state=active]:text-white">
+            <FileText className="w-3 h-3 mr-2" />
+            Documentos emitidos
+          </TabsTrigger>
+          <TabsTrigger value="batch" className="data-[state=active]:bg-amber-600 data-[state=active]:text-white">
+            <Calculator className="w-3 h-3 mr-2" />
+            Processamento de Faturação Mensal
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="batch" className="mt-6">
+          <BatchInvoicingView />
+        </TabsContent>
+
+        <TabsContent value="documentos" className="mt-6">
       <Card className="border-slate-700 bg-slate-800/50">
         <CardHeader>
           <CardTitle className="text-lg text-slate-200">Documentos emitidos</CardTitle>
@@ -241,6 +261,8 @@ export function BillingView() {
           )}
         </CardContent>
       </Card>
+        </TabsContent>
+      </Tabs>
 
       {previewData && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70">

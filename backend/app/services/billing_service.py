@@ -330,6 +330,350 @@ class BillingService:
         )
         return r.rowcount > 0
 
+    def simulate_batch(
+        self,
+        date_from: str,
+        date_to: str,
+        empresa_id: Optional[int] = None,
+        marketplace_id: Optional[int] = None,
+        serie_faturas: Optional[str] = None,
+        serie_nc: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Simula o processamento de faturação mensal: encomendas elegíveis para Fatura
+        (sem documento Fatura) e devoluções para NC (rma_claims sem NC), no intervalo de datas.
+        Não altera o estado na BD. Devolve listas e totais agregados.
+        """
+        conditions = [
+            "so.order_date >= CAST(? AS TIMESTAMP)",
+            "so.order_date <= CAST(? AS TIMESTAMP)",
+            "NOT EXISTS (SELECT 1 FROM billing_documents bd WHERE bd.sales_order_id = so.id AND bd.doc_type = 'Fatura')",
+        ]
+        params: List[Any] = [date_from, date_to]
+        if empresa_id is not None:
+            conditions.append("so.empresa_id = ?")
+            params.append(empresa_id)
+        if marketplace_id is not None:
+            conditions.append("so.marketplace_id = ?")
+            params.append(marketplace_id)
+        where = " AND ".join(conditions)
+
+        rows_ft = self.conn.execute(
+            f"""
+            SELECT so.id, so.external_order_id, so.total_net_value, so.total_gross,
+                   COALESCE(so.total_gross, 0) - COALESCE(so.total_net_value, 0) AS vat_approx,
+                   m.nome AS marketplace_nome
+            FROM sales_orders so
+            LEFT JOIN marketplaces m ON m.id = so.marketplace_id
+            WHERE {where}
+            ORDER BY so.order_date, so.id
+            """,
+            params,
+        ).fetchall()
+
+        items: List[Dict[str, Any]] = []
+        total_faturas = 0.0
+        for r in rows_ft:
+            so_id, ext_id, total_net, total_gross, vat_approx, mp_nome = r
+            total_gross = float(total_gross or 0)
+            total_net = float(total_net or total_gross)
+            vat_approx = float(vat_approx or 0)
+            if total_gross == 0 and total_net > 0:
+                total_gross = total_net + vat_approx
+            items.append({
+                "tipo_documento": "Fatura",
+                "referencia_encomenda": ext_id or f"SO#{so_id}",
+                "valor_base": round(total_net, 2),
+                "iva": round(vat_approx, 2),
+                "total": round(total_gross, 2),
+                "sales_order_id": so_id,
+                "marketplace_nome": mp_nome,
+            })
+            total_faturas += total_gross
+
+        # NC: rma_claims no período ainda sem documento NC (por sales_order_id associado)
+        nc_conditions = [
+            "rc.created_at >= CAST(? AS TIMESTAMP)",
+            "rc.created_at <= CAST(? AS TIMESTAMP)",
+            "rc.refund_customer_value > 0",
+        ]
+        nc_params: List[Any] = [date_from, date_to]
+        if empresa_id is not None:
+            nc_conditions.append("rc.empresa_id = ?")
+            nc_params.append(empresa_id)
+        nc_where = " AND ".join(nc_conditions)
+        # Apenas claims cujo sales_order ainda não tem NC (simplificado: uma NC por sales_order)
+        rows_nc = self.conn.execute(
+            f"""
+            SELECT rc.id, rc.sales_order_id, rc.refund_customer_value, rc.external_order_id,
+                   so.external_order_id AS so_ref
+            FROM rma_claims rc
+            LEFT JOIN sales_orders so ON so.id = rc.sales_order_id
+            WHERE rc.sales_order_id IS NOT NULL AND {nc_where}
+            AND NOT EXISTS (
+                SELECT 1 FROM billing_documents bd
+                WHERE bd.sales_order_id = rc.sales_order_id AND bd.doc_type = 'NotaCreditoCliente'
+            )
+            ORDER BY rc.created_at, rc.id
+            """,
+            nc_params,
+        ).fetchall()
+
+        total_nc = 0.0
+        seen_so_nc: set = set()
+        for r in rows_nc:
+            rc_id, so_id, refund_val, ext_id, so_ref = r
+            if so_id in seen_so_nc:
+                continue
+            seen_so_nc.add(so_id)
+            refund_val = float(refund_val or 0)
+            if refund_val <= 0:
+                continue
+            total_nc += refund_val
+            items.append({
+                "tipo_documento": "Nota de Crédito",
+                "referencia_encomenda": ext_id or so_ref or f"SO#{so_id}",
+                "valor_base": round(-refund_val / 1.23, 2),
+                "iva": round(-refund_val + (refund_val / 1.23), 2),
+                "total": round(-refund_val, 2),
+                "sales_order_id": so_id,
+                "rma_claim_id": rc_id,
+            })
+
+        saldo_liquido = round(total_faturas - total_nc, 2)
+        return {
+            "items": items,
+            "total_faturas": round(total_faturas, 2),
+            "total_nc": round(total_nc, 2),
+            "saldo_liquido": saldo_liquido,
+        }
+
+    def simulate_batch_detailed(
+        self,
+        date_from: str,
+        date_to: str,
+        empresa_id: Optional[int] = None,
+        marketplace_id: Optional[int] = None,
+        serie_faturas: Optional[str] = None,
+        serie_nc: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Simulação com detalhe por linha (master-detail) e resumo IVA por taxa.
+        Totais de cada documento = soma exata das linhas (valor_base, iva, total).
+        """
+        raw = self.simulate_batch(
+            date_from=date_from,
+            date_to=date_to,
+            empresa_id=empresa_id,
+            marketplace_id=marketplace_id,
+            serie_faturas=serie_faturas,
+            serie_nc=serie_nc,
+        )
+        documentos: List[Dict[str, Any]] = []
+        vat_by_rate: Dict[float, Tuple[float, float]] = {}  # rate -> (base, iva)
+
+        for it in raw["items"]:
+            so_id = it.get("sales_order_id")
+            tipo = it.get("tipo_documento", "")
+            ref = it.get("referencia_encomenda", "")
+            mp_nome = it.get("marketplace_nome")
+            linhas: List[Dict[str, Any]] = []
+            doc_base = 0.0
+            doc_iva = 0.0
+
+            if so_id and tipo == "Fatura":
+                # Buscar linhas do sales_order com IVA por linha (OSS)
+                order_data = self.get_proforma_data(so_id)
+                if order_data and order_data.get("order", {}).get("items"):
+                    for row in order_data["order"]["items"]:
+                        qty = float(row.get("quantity", 0))
+                        unit = float(row.get("unit_price", 0))
+                        vat_rate = float(row.get("vat_rate", 23.0))
+                        vat_amt = float(row.get("vat_amount", 0))
+                        line_net = float(row.get("line_net", 0))
+                        line_total = float(row.get("line_total", 0))
+                        if line_total == 0:
+                            line_total = qty * unit
+                            line_net = round(line_total / (1 + vat_rate / 100), 2)
+                            vat_amt = round(line_total - line_net, 2)
+                        artigo = (row.get("sku_marketplace") or row.get("internal_sku") or "—")
+                        linhas.append({
+                            "artigo": artigo,
+                            "quantidade": qty,
+                            "preco_unitario": unit,
+                            "taxa_iva": vat_rate,
+                            "valor_iva": round(vat_amt, 2),
+                            "total_linha": round(line_total, 2),
+                        })
+                        doc_base += line_net
+                        doc_iva += vat_amt
+                        vat_by_rate[vat_rate] = (
+                            vat_by_rate.get(vat_rate, (0, 0))[0] + line_net,
+                            vat_by_rate.get(vat_rate, (0, 0))[1] + vat_amt,
+                        )
+                if not linhas:
+                    doc_base = it.get("valor_base", 0)
+                    doc_iva = it.get("iva", 0)
+                    linhas.append({
+                        "artigo": "Total ordem",
+                        "quantidade": 1,
+                        "preco_unitario": it.get("total", 0),
+                        "taxa_iva": 23.0,
+                        "valor_iva": doc_iva,
+                        "total_linha": it.get("total", 0),
+                    })
+                    vat_by_rate[23.0] = (
+                        vat_by_rate.get(23.0, (0, 0))[0] + doc_base,
+                        vat_by_rate.get(23.0, (0, 0))[1] + doc_iva,
+                    )
+                doc_base = round(doc_base, 2)
+                doc_iva = round(doc_iva, 2)
+                doc_total = round(doc_base + doc_iva, 2)
+            elif so_id and tipo == "Nota de Crédito":
+                doc_base = it.get("valor_base", 0)
+                doc_iva = it.get("iva", 0)
+                doc_total = it.get("total", 0)
+                linhas.append({
+                    "artigo": "Nota de Crédito",
+                    "quantidade": 1,
+                    "preco_unitario": doc_total,
+                    "taxa_iva": 23.0,
+                    "valor_iva": doc_iva,
+                    "total_linha": doc_total,
+                })
+                vat_by_rate[23.0] = (
+                    vat_by_rate.get(23.0, (0, 0))[0] + doc_base,
+                    vat_by_rate.get(23.0, (0, 0))[1] + doc_iva,
+                )
+            else:
+                doc_base = it.get("valor_base", 0)
+                doc_iva = it.get("iva", 0)
+                doc_total = it.get("total", 0)
+                if not linhas:
+                    linhas.append({
+                        "artigo": "—",
+                        "quantidade": 1,
+                        "preco_unitario": doc_total,
+                        "taxa_iva": 23.0,
+                        "valor_iva": doc_iva,
+                        "total_linha": doc_total,
+                    })
+
+            total_doc = round(doc_base + doc_iva, 2)
+            documentos.append({
+                "tipo_documento": tipo,
+                "referencia_encomenda": ref,
+                "cliente": None,
+                "marketplace_nome": mp_nome,
+                "valor_base": round(doc_base, 2),
+                "iva": round(doc_iva, 2),
+                "total": round(total_doc, 2),
+                "linhas": linhas,
+                "sales_order_id": so_id,
+            })
+
+        resumo_iva = [
+            {"taxa_iva": rate, "base_tributavel": round(b, 2), "valor_iva": round(v, 2)}
+            for rate, (b, v) in sorted(vat_by_rate.items(), reverse=True)
+        ]
+
+        return {
+            "documentos": documentos,
+            "total_faturas": raw["total_faturas"],
+            "total_nc": raw["total_nc"],
+            "saldo_liquido": raw["saldo_liquido"],
+            "resumo_iva": resumo_iva,
+        }
+
+    def execute_batch(
+        self,
+        date_from: str,
+        date_to: str,
+        empresa_id: Optional[int] = None,
+        marketplace_id: Optional[int] = None,
+        serie_faturas: Optional[str] = None,
+        serie_nc: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Executa a faturação definitiva: cria documentos Fatura e NotaCreditoCliente,
+        atribui document_number sequencial e marca as encomendas como faturadas (via registo em billing_documents).
+        """
+        sim = self.simulate_batch(
+            date_from=date_from,
+            date_to=date_to,
+            empresa_id=empresa_id,
+            marketplace_id=marketplace_id,
+            serie_faturas=serie_faturas,
+            serie_nc=serie_nc,
+        )
+        created_faturas = 0
+        created_nc = 0
+        prefix_ft = (serie_faturas or "FT").strip() or "FT"
+        prefix_nc = (serie_nc or "NC").strip() or "NC"
+
+        for it in sim["items"]:
+            so_id = it.get("sales_order_id")
+            if not so_id:
+                continue
+            tipo = it.get("tipo_documento", "")
+            if tipo == "Fatura":
+                data = self.get_proforma_data(so_id)
+                if not data:
+                    continue
+                emp_id = data["order"]["empresa_id"]
+                doc_number = _next_document_number(
+                    self.conn, emp_id, doc_type="Fatura", prefix=prefix_ft
+                )
+                total_gross = it.get("total", 0)
+                total_net = it.get("valor_base", 0)
+                total_vat = it.get("iva", 0)
+                customer_country = (data["order"].get("customer_country") or "")
+                bid = _next_id(self.conn, "billing_documents")
+                self.conn.execute(
+                    """
+                    INSERT INTO billing_documents
+                    (id, empresa_id, sales_order_id, doc_type, document_number, status, total_gross, total_net, total_vat, customer_country)
+                    VALUES (?, ?, ?, 'Fatura', ?, 'issued', ?, ?, ?, ?)
+                    """,
+                    [bid, emp_id, so_id, doc_number, total_gross, total_net, total_vat, customer_country],
+                )
+                created_faturas += 1
+            elif tipo == "Nota de Crédito":
+                data = self.get_proforma_data(so_id)
+                if not data:
+                    continue
+                existing = self.conn.execute(
+                    "SELECT id FROM billing_documents WHERE sales_order_id = ? AND doc_type = 'NotaCreditoCliente'",
+                    [so_id],
+                ).fetchone()
+                if existing:
+                    continue
+                emp_id = data["order"]["empresa_id"]
+                doc_number = _next_document_number(
+                    self.conn, emp_id, doc_type="NotaCreditoCliente", prefix=prefix_nc
+                )
+                total_gross = -abs(it.get("total", 0))
+                total_net = -abs(it.get("valor_base", 0))
+                total_vat = -abs(it.get("iva", 0))
+                customer_country = (data["order"].get("customer_country") or "")
+                bid = _next_id(self.conn, "billing_documents")
+                self.conn.execute(
+                    """
+                    INSERT INTO billing_documents
+                    (id, empresa_id, sales_order_id, doc_type, document_number, status, total_gross, total_net, total_vat, customer_country)
+                    VALUES (?, ?, ?, 'NotaCreditoCliente', ?, 'issued', ?, ?, ?, ?)
+                    """,
+                    [bid, emp_id, so_id, doc_number, total_gross, total_net, total_vat, customer_country],
+                )
+                created_nc += 1
+        self.conn.commit()
+        return {
+            "success": True,
+            "message": f"Faturação definitiva concluída: {created_faturas} Faturas e {created_nc} Notas de Crédito emitidas.",
+            "created_faturas": created_faturas,
+            "created_nc": created_nc,
+        }
+
     def bulk_create_proformas(self, sales_order_ids: List[int]) -> Dict[str, Any]:
         """Cria proformas para uma lista de sales_order_id. Ignora os que já têm proforma."""
         created = []

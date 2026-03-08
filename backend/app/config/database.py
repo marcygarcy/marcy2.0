@@ -1031,6 +1031,8 @@ def init_database():
                 sl.tipo,
                 CASE sl.tipo
                     WHEN 'Fatura'          THEN 'FT'
+                    WHEN 'NE'             THEN 'NE'
+                    WHEN 'Proforma'       THEN 'PF'
                     WHEN 'Nota de Crédito' THEN 'NC'
                     WHEN 'Nota de Débito'  THEN 'ND'
                     WHEN 'Pagamento'       THEN 'RE'
@@ -1038,6 +1040,8 @@ def init_database():
                 END AS tipo_doc,
                 CASE sl.tipo
                     WHEN 'Fatura'          THEN 'C'
+                    WHEN 'NE'             THEN 'C'
+                    WHEN 'Proforma'       THEN 'C'
                     WHEN 'Nota de Débito'  THEN 'C'
                     WHEN 'Nota de Crédito' THEN 'D'
                     WHEN 'Pagamento'       THEN 'D'
@@ -1453,6 +1457,15 @@ def init_database():
 
     # ── Migrações Fase 7: InvoiceReviewModal — campos decomposição + NC ─────────
 
+    # supplier_invoices: document_type (Fatura | NE | Proforma) para match PO–Fatura + NE/Proforma/adiantamento
+    try:
+        r = conn.execute("DESCRIBE supplier_invoices").fetchall()
+        cols_si_dt = [c[0] for c in r]
+        if "document_type" not in cols_si_dt:
+            conn.execute("ALTER TABLE supplier_invoices ADD COLUMN document_type TEXT DEFAULT 'Fatura'")
+    except Exception:
+        pass
+
     # supplier_invoices: decomposição valor + vencimento + código divergência
     try:
         r = conn.execute("DESCRIBE supplier_invoices").fetchall()
@@ -1494,6 +1507,36 @@ def init_database():
     try:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_inv_pos_invoice ON supplier_invoice_pos(invoice_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_inv_pos_po ON supplier_invoice_pos(purchase_order_id)")
+    except Exception:
+        pass
+
+    # ── Gestão de Terceiros (GT): Grupos de Terceiro + Movimentos / Contabilidade ──
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS gt_grupos (
+            id         INTEGER PRIMARY KEY,
+            empresa_id INTEGER,
+            codigo     TEXT NOT NULL,
+            nome       TEXT NOT NULL,
+            ativo      BOOLEAN DEFAULT TRUE,
+            data_criacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS gt_movimentos (
+            id            INTEGER PRIMARY KEY,
+            empresa_id    INTEGER,
+            grupo_id      INTEGER,
+            data_mov      DATE NOT NULL,
+            grupo_terceiro TEXT,
+            valor         DOUBLE NOT NULL DEFAULT 0,
+            conta_contabilidade TEXT,
+            descricao     TEXT,
+            data_criacao  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    try:
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_gt_mov_empresa ON gt_movimentos(empresa_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_gt_mov_data ON gt_movimentos(data_mov)")
     except Exception:
         pass
 

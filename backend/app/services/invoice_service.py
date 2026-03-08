@@ -23,9 +23,23 @@ def _next_id(conn, table: str) -> int:
     return int(row[0]) if row else 1
 
 
+def _supplier_invoices_has_document_type(conn) -> bool:
+    try:
+        r = conn.execute("DESCRIBE supplier_invoices").fetchall()
+        return "document_type" in [c[0] for c in r]
+    except Exception:
+        return False
+
+
 class InvoiceService:
     def __init__(self):
         self.conn = get_db_connection()
+        self._has_document_type: Optional[bool] = None
+
+    def _has_document_type_column(self) -> bool:
+        if self._has_document_type is None:
+            self._has_document_type = _supplier_invoices_has_document_type(self.conn)
+        return self._has_document_type
 
     def close(self):
         try:
@@ -89,27 +103,44 @@ class InvoiceService:
         po_ids: List[int],
         notas: Optional[str] = None,
         post_to_ledger: bool = True,
+        document_type: str = "Fatura",
     ) -> Dict[str, Any]:
         """
-        1. Cria registo em supplier_invoices
+        1. Cria registo em supplier_invoices (document_type: Fatura | NE | Proforma)
         2. Cria ligações em supplier_invoice_pos
         3. Atualiza invoice_ref + invoice_amount nas POs (retrocompatibilidade)
-        4. Se post_to_ledger: cria lançamento "Fatura" na supplier_ledger
+        4. Se post_to_ledger: cria lançamento na supplier_ledger (tipo = document_type)
+           NE/Proforma: pode registar agora; quando a fatura definitiva chegar, regista Fatura e o match PO–banco faz a ligação (incl. adiantamentos).
         5. Atualiza status para 'in_ledger' se lançamento criado
         """
+        doc_type = (document_type or "Fatura").strip() or "Fatura"
+        if doc_type not in ("Fatura", "NE", "Proforma"):
+            doc_type = "Fatura"
         inv_id = _next_id(self.conn, "supplier_invoices")
         inv_date = invoice_date or str(date.today())
 
-        self.conn.execute(
-            """
-            INSERT INTO supplier_invoices
-                (id, empresa_id, supplier_id, invoice_ref, invoice_date,
-                 invoice_amount, status, notas)
-            VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
-            """,
-            [inv_id, empresa_id, supplier_id, invoice_ref.strip(),
-             inv_date, round(float(invoice_amount), 2), notas],
-        )
+        if self._has_document_type_column():
+            self.conn.execute(
+                """
+                INSERT INTO supplier_invoices
+                    (id, empresa_id, supplier_id, invoice_ref, invoice_date,
+                     invoice_amount, status, notas, document_type)
+                VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+                """,
+                [inv_id, empresa_id, supplier_id, invoice_ref.strip(),
+                 inv_date, round(float(invoice_amount), 2), notas, doc_type],
+            )
+        else:
+            self.conn.execute(
+                """
+                INSERT INTO supplier_invoices
+                    (id, empresa_id, supplier_id, invoice_ref, invoice_date,
+                     invoice_amount, status, notas)
+                VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
+                """,
+                [inv_id, empresa_id, supplier_id, invoice_ref.strip(),
+                 inv_date, round(float(invoice_amount), 2), notas],
+            )
 
         for po_id in po_ids:
             sip_id = _next_id(self.conn, "supplier_invoice_pos")
@@ -139,11 +170,11 @@ class InvoiceService:
                 acct.create_ledger_entry(
                     empresa_id=empresa_id,
                     supplier_id=supplier_id,
-                    tipo="Fatura",
+                    tipo=doc_type,
                     valor_credito=round(float(invoice_amount), 2),
                     documento_ref=invoice_ref.strip(),
                     purchase_order_id=po_link,
-                    notas=f"Fatura {invoice_ref} — {po_label}",
+                    notas=f"{doc_type} {invoice_ref} — {po_label}",
                     data_movimento=date.fromisoformat(inv_date) if inv_date else None,
                 )
                 acct.close()
@@ -188,10 +219,14 @@ class InvoiceService:
             f"SELECT COUNT(*) FROM supplier_invoices si WHERE {where}", params
         ).fetchone()[0]
 
+        has_dt = self._has_document_type_column()
+        doc_col = "COALESCE(si.document_type, 'Fatura') AS document_type," if has_dt else ""
+        ledger_tipo = "COALESCE(si.document_type, 'Fatura')" if has_dt else "'Fatura'"
         rows = self.conn.execute(
             f"""
             SELECT si.id, si.empresa_id, si.supplier_id, si.invoice_ref, si.invoice_date,
                    si.invoice_amount, si.status, si.notas, si.data_criacao,
+                   {doc_col}
                    s.nome AS supplier_nome, e.nome AS empresa_nome,
                    (SELECT COUNT(*) FROM supplier_invoice_pos sip
                     WHERE sip.invoice_id = si.id) AS po_count,
@@ -199,7 +234,7 @@ class InvoiceService:
                        SELECT 1 FROM supplier_ledger sl
                        WHERE sl.documento_ref = si.invoice_ref
                          AND sl.supplier_id = si.supplier_id
-                         AND sl.tipo = 'Fatura'
+                         AND sl.tipo = {ledger_tipo}
                    ) AS has_ledger_entry
             FROM supplier_invoices si
             LEFT JOIN suppliers s ON s.id = si.supplier_id
@@ -211,25 +246,35 @@ class InvoiceService:
             params + [limit, offset],
         ).fetchall()
 
-        cols = ["id", "empresa_id", "supplier_id", "invoice_ref", "invoice_date",
-                "invoice_amount", "status", "notas", "data_criacao",
-                "supplier_nome", "empresa_nome", "po_count", "has_ledger_entry"]
+        base_cols = ["id", "empresa_id", "supplier_id", "invoice_ref", "invoice_date",
+                     "invoice_amount", "status", "notas", "data_criacao"]
+        if has_dt:
+            base_cols.append("document_type")
+        base_cols.extend(["supplier_nome", "empresa_nome", "po_count", "has_ledger_entry"])
+        cols = base_cols
         result = []
         for r in rows:
             d = dict(zip(cols, r))
             d["invoice_amount"] = float(d["invoice_amount"] or 0)
             d["data_criacao"] = str(d["data_criacao"])[:10] if d["data_criacao"] else None
             d["invoice_date"] = str(d["invoice_date"])[:10] if d["invoice_date"] else None
+            if not has_dt:
+                d["document_type"] = "Fatura"
+            else:
+                d["document_type"] = d.get("document_type") or "Fatura"
             d["has_ledger_entry"] = bool(d["has_ledger_entry"])
             d["po_ids"] = self._get_po_ids_for_invoice(d["id"])
             result.append(d)
         return result, int(total)
 
     def get_invoice(self, invoice_id: int) -> Optional[Dict[str, Any]]:
+        has_dt = self._has_document_type_column()
+        doc_col = "COALESCE(si.document_type, 'Fatura') AS document_type," if has_dt else ""
         row = self.conn.execute(
-            """
+            f"""
             SELECT si.id, si.empresa_id, si.supplier_id, si.invoice_ref, si.invoice_date,
                    si.invoice_amount, si.status, si.notas, si.data_criacao,
+                   {doc_col}
                    s.nome AS supplier_nome, e.nome AS empresa_nome
             FROM supplier_invoices si
             LEFT JOIN suppliers s ON s.id = si.supplier_id
@@ -241,12 +286,15 @@ class InvoiceService:
         if not row:
             return None
         cols = ["id", "empresa_id", "supplier_id", "invoice_ref", "invoice_date",
-                "invoice_amount", "status", "notas", "data_criacao",
-                "supplier_nome", "empresa_nome"]
+                "invoice_amount", "status", "notas", "data_criacao"]
+        if has_dt:
+            cols.append("document_type")
+        cols.extend(["supplier_nome", "empresa_nome"])
         d = dict(zip(cols, row))
         d["invoice_amount"] = float(d["invoice_amount"] or 0)
         d["data_criacao"] = str(d["data_criacao"])[:10] if d["data_criacao"] else None
         d["invoice_date"] = str(d["invoice_date"])[:10] if d["invoice_date"] else None
+        d["document_type"] = d.get("document_type") or "Fatura"
         d["po_ids"] = self._get_po_ids_for_invoice(invoice_id)
         d["pos"] = self._get_pos_for_invoice(invoice_id)
         return d

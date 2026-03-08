@@ -232,6 +232,8 @@ export interface SupplierInvoice {
   data_criacao: string | null;
 }
 
+export type DocumentTypeInvoice = 'Fatura' | 'NE' | 'Proforma';
+
 export interface CreateInvoiceRequest {
   empresa_id: number;
   supplier_id: number;
@@ -241,6 +243,7 @@ export interface CreateInvoiceRequest {
   po_ids: number[];
   notas?: string;
   post_to_ledger: boolean;
+  document_type?: DocumentTypeInvoice;
 }
 
 // ─── API ─────────────────────────────────────────────────────────────────────

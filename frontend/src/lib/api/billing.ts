@@ -76,6 +76,56 @@ export interface DocumentsListResponse {
   offset: number;
 }
 
+export interface SimulationDocumentItem {
+  tipo_documento: string;
+  referencia_encomenda: string;
+  valor_base: number;
+  iva: number;
+  total: number;
+}
+
+export interface SimulationResponse {
+  items: SimulationDocumentItem[];
+  total_faturas: number;
+  total_nc: number;
+  saldo_liquido: number;
+}
+
+export interface DocumentLine {
+  artigo: string;
+  quantidade: number;
+  preco_unitario: number;
+  taxa_iva: number;
+  valor_iva: number;
+  total_linha: number;
+}
+
+export interface DocumentPreview {
+  tipo_documento: string;
+  referencia_encomenda: string;
+  cliente?: string;
+  marketplace_nome?: string;
+  valor_base: number;
+  iva: number;
+  total: number;
+  linhas: DocumentLine[];
+  sales_order_id?: number;
+}
+
+export interface VatSummaryItem {
+  taxa_iva: number;
+  base_tributavel: number;
+  valor_iva: number;
+}
+
+export interface SimulationDetailedResponse {
+  documentos: DocumentPreview[];
+  total_faturas: number;
+  total_nc: number;
+  saldo_liquido: number;
+  resumo_iva: VatSummaryItem[];
+}
+
 export const billingApi = {
   getProformaData(salesOrderId: number): Promise<ProformaData> {
     return apiClient.get(`/api/v1/billing/proforma-data/${salesOrderId}`).then((r) => r.data);
@@ -105,5 +155,39 @@ export const billingApi = {
     errors: number[];
   }> {
     return apiClient.post('/api/v1/billing/bulk-proformas', { sales_order_ids: salesOrderIds }).then((r) => r.data);
+  },
+
+  /** Processamento de Faturação Mensal (Batch Invoicing) */
+  simulateBatch(params: {
+    date_from: string;
+    date_to: string;
+    empresa_id?: number;
+    marketplace_id?: number;
+    serie_faturas?: string;
+    serie_nc?: string;
+  }): Promise<SimulationResponse> {
+    return apiClient.post('/api/v1/billing/simulate', params).then((r) => r.data);
+  },
+
+  executeBatch(params: {
+    date_from: string;
+    date_to: string;
+    empresa_id?: number;
+    marketplace_id?: number;
+    serie_faturas?: string;
+    serie_nc?: string;
+  }): Promise<{ success: boolean; message: string; created_faturas: number; created_nc: number }> {
+    return apiClient.post('/api/v1/billing/execute', params).then((r) => r.data);
+  },
+
+  simulateBatchDetailed(params: {
+    date_from: string;
+    date_to: string;
+    empresa_id?: number;
+    marketplace_id?: number;
+    serie_faturas?: string;
+    serie_nc?: string;
+  }): Promise<SimulationDetailedResponse> {
+    return apiClient.post('/api/v1/billing/simulate-detailed', params).then((r) => r.data);
   },
 };

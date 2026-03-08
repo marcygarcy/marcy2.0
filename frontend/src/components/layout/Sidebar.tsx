@@ -86,6 +86,7 @@ const MODULO_OFFICE_STOCK = { id: 'office-stock',             nome: 'Stock Escri
 const MODULO_BANCOS       = { id: 'bancos',                   nome: 'Bancos',              icone: 'Landmark' };
 const MODULO_FINANCAS     = { id: 'financas',                 nome: 'Finanças Globais',    icone: 'DollarSign' };
 const MODULO_DADOS_MESTRES = { id: 'dados-mestres',           nome: 'Dados Mestres',       icone: 'FolderOpen' };
+const MODULO_TERCEIROS    = { id: 'gestao-terceiros',        nome: 'Gestão de Terceiros', icone: 'Handshake' };
 const MODULO_AUTOMATION   = { id: 'automation',              nome: 'Status de Automação', icone: 'Zap' };
 const MODULO_SYSTEM_CFG   = { id: 'system-config',           nome: 'Configuração Sistema', icone: 'Settings2' };
 const MODULO_DOCS         = { id: 'documentacao',            nome: 'Documentação',        icone: 'BookOpen' };
@@ -156,7 +157,8 @@ export function Sidebar() {
   const [pillarA, setPillarA] = useState(true);   // Vendas & SCM
   const [pillarB, setPillarB] = useState(true);   // Logística
   const [pillarC, setPillarC] = useState(true);   // Financeiro
-  const [pillarD, setPillarD] = useState(false);  // Configuração (collapsed by default)
+  const [pillarD, setPillarD] = useState(true);   // Gestão de Terceiros (módulo principal)
+  const [pillarE, setPillarE] = useState(false);  // Configuração (collapsed by default)
 
   // Recebimentos sub-tree
   const [expandedRecebimentos, setExpandedRecebimentos] = useState(true);
@@ -478,15 +480,35 @@ export function Sidebar() {
         </div>
       )}
 
-      {/* ═══ PILAR D: CONFIGURAÇÃO ══════════════════════════════════════════ */}
+      {/* ═══ PILAR D: GESTÃO DE TERCEIROS (módulo principal) ═══════════════════ */}
       <SectionHeader
-        label="D · Configuração"
-        accent="text-slate-400/70 bg-slate-800/50 hover:bg-slate-700/50"
+        label="D · Gestão de Terceiros"
+        accent="text-amber-400/80 bg-amber-950/30 hover:bg-amber-950/50"
         expanded={pillarD}
         onToggle={() => setPillarD(v => !v)}
       />
 
       {pillarD && (
+        <div className="mb-3 space-y-1">
+          <NavItem
+            icon={<Users className="w-4 h-4 shrink-0" />}
+            label="Gestão de Terceiros"
+            active={isActive(MODULO_TERCEIROS.id)}
+            activeColor="bg-amber-600 text-white"
+            onClick={() => setModuloSelecionado(MODULO_TERCEIROS)}
+          />
+        </div>
+      )}
+
+      {/* ═══ PILAR E: CONFIGURAÇÃO ═════════════════════════════════════════════ */}
+      <SectionHeader
+        label="E · Configuração"
+        accent="text-slate-400/70 bg-slate-800/50 hover:bg-slate-700/50"
+        expanded={pillarE}
+        onToggle={() => setPillarE(v => !v)}
+      />
+
+      {pillarE && (
         <div className="mb-3 space-y-1">
 
           {/* Dados Mestres (expandable) */}
@@ -551,7 +573,7 @@ export function Sidebar() {
         </div>
       )}
 
-      {/* ═══ DOCUMENTAÇÃO ═══════════════════════════════════════════════════ */}
+      {/* ═══ DOCUMENTAÇÃO ═════════════════════════════════════════════════════ */}
       <div className="mt-auto pt-3 border-t border-slate-700/60">
         <NavItem
           icon={<BookOpen className="w-4 h-4 shrink-0" />}

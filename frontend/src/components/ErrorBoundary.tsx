@@ -31,13 +31,13 @@ export class ErrorBoundary extends Component<Props, State> {
       return (
         <div className="min-h-screen bg-slate-900 text-slate-200 p-8 flex items-center justify-center">
           <div className="max-w-xl w-full bg-slate-800 border border-red-500/50 rounded-xl p-6">
-            <h1 className="text-xl font-semibold text-red-400 mb-2">Algo correu mal</h1>
+            <h1 className="text-xl font-semibold text-amber-400 mb-2">Algo correu mal</h1>
             <p className="text-slate-300 text-sm mb-4">
-              Em desenvolvimento, faz refresh (F5). Se o problema continuar, verifica a consola do browser (F12) e o terminal do frontend.
+              (Em desenvolvimento.)
             </p>
-            <pre className="bg-slate-900 rounded p-3 text-xs text-slate-400 overflow-auto max-h-40">
-              {this.state.error.message}
-            </pre>
+            <p className="text-slate-500 text-xs">
+              Pode fazer refresh (F5) ou tentar de novo.
+            </p>
             <button
               type="button"
               onClick={() => this.setState({ hasError: false, error: null })}
