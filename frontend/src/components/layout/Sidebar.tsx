@@ -11,67 +11,11 @@ import {
 } from 'lucide-react';
 import { invoiceValidationApi } from '@/lib/api/invoiceValidation';
 
-// ─── Hardcoded data ────────────────────────────────────────────────────────────
+// ─── Fallback data (API-driven; only used if API fails) ────────────────────────
 
-const EMPRESAS_HARDCODED: Empresa[] = [
-  { id: 1, nome: 'teste 369',      codigo: 'BHS',    ativo: true },
-  { id: 2, nome: 'Teste 123',  codigo: 'GHS',    ativo: true },
-  { id: 3, nome: 'testes xyz',     codigo: 'BHS_SL', ativo: true },
-  { id: 4, nome: 'Teste 123',  codigo: 'BHS_DE', ativo: true },
-  { id: 5, nome: 'testes xyz',  codigo: 'BES',    ativo: true },
-];
+const EMPRESAS_HARDCODED: Empresa[] = [];  // Carregadas da API: GET /api/v1/empresas
 
-const grupoHubSalesMarketplaces: Marketplace[] = [
-  { id: 3,  empresa_id: 2, nome: 'Alltricks',          ativo: true },
-  { id: 4,  empresa_id: 2, nome: 'Bigbang',            ativo: true },
-  { id: 5,  empresa_id: 2, nome: 'Bricodepot',         ativo: true },
-  { id: 6,  empresa_id: 2, nome: 'Bulevip',            ativo: true },
-  { id: 7,  empresa_id: 2, nome: 'Carrefour',          ativo: true },
-  { id: 8,  empresa_id: 2, nome: 'Castorama',          ativo: true },
-  { id: 9,  empresa_id: 2, nome: 'Clubefashion',       ativo: true },
-  { id: 11, empresa_id: 2, nome: 'Elcorteingles',      ativo: true },
-  { id: 12, empresa_id: 2, nome: 'Empik',              ativo: true },
-  { id: 10, empresa_id: 2, nome: 'Eprice',             ativo: true },
-  { id: 14, empresa_id: 2, nome: 'Leclerc',            ativo: true },
-  { id: 13, empresa_id: 2, nome: 'Leroymerlin',        ativo: true },
-  { id: 15, empresa_id: 2, nome: 'Mediamarkt DE',      ativo: true },
-  { id: 16, empresa_id: 2, nome: 'Mediamarkt ES',      ativo: true },
-  { id: 17, empresa_id: 2, nome: 'PC Componentes ES',  ativo: true },
-  { id: 18, empresa_id: 2, nome: 'PC Componentes FR',  ativo: true },
-  { id: 19, empresa_id: 2, nome: 'PC Componentes IT',  ativo: true },
-  { id: 20, empresa_id: 2, nome: 'PC Componentes PT',  ativo: true },
-  { id: 21, empresa_id: 2, nome: 'Phonehouse',         ativo: true },
-  { id: 1,  empresa_id: 2, nome: 'Pixmania',           ativo: true },
-  { id: 22, empresa_id: 2, nome: 'Planetahuerto',      ativo: true },
-  { id: 23, empresa_id: 2, nome: 'Rueducommerce',      ativo: true },
-  { id: 24, empresa_id: 2, nome: 'Tiendanimal',        ativo: true },
-  { id: 25, empresa_id: 2, nome: 'Ventunique',         ativo: true },
-  { id: 2,  empresa_id: 2, nome: 'Worten',             ativo: true },
-].sort((a, b) => a.nome.localeCompare(b.nome));
-
-const MARKETPLACES_HARDCODED: Record<number, Marketplace[]> = {
-  1: [
-    { id: 36, empresa_id: 1, nome: 'Conforama Iberia', ativo: true },
-    { id: 37, empresa_id: 1, nome: 'Worten',           ativo: true },
-  ].sort((a, b) => a.nome.localeCompare(b.nome)),
-  2: grupoHubSalesMarketplaces,
-  3: [
-    { id: 34, empresa_id: 3, nome: 'Carrefour',    ativo: true },
-    { id: 35, empresa_id: 3, nome: 'Leroymerlin',  ativo: true },
-  ].sort((a, b) => a.nome.localeCompare(b.nome)),
-  4: [
-    { id: 28, empresa_id: 4, nome: 'Carrefour',       ativo: true },
-    { id: 29, empresa_id: 4, nome: 'Conforama',       ativo: true },
-    { id: 30, empresa_id: 4, nome: 'Shopapotheke',    ativo: true },
-    { id: 31, empresa_id: 4, nome: 'Truffaut',        ativo: true },
-    { id: 32, empresa_id: 4, nome: 'Ubaldi',          ativo: true },
-    { id: 33, empresa_id: 4, nome: 'Zooplus',         ativo: true },
-  ].sort((a, b) => a.nome.localeCompare(b.nome)),
-  5: [
-    { id: 26, empresa_id: 5, nome: 'Carrefour',       ativo: true },
-    { id: 27, empresa_id: 5, nome: 'PC Componentes',  ativo: true },
-  ].sort((a, b) => a.nome.localeCompare(b.nome)),
-};
+const MARKETPLACES_HARDCODED: Record<number, Marketplace[]> = {};  // Carregadas da API: GET /api/v1/marketplaces?empresa_id=X
 
 // ─── Module definitions ────────────────────────────────────────────────────────
 
