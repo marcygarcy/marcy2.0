@@ -46,11 +46,22 @@ export const terceirosApi = {
   },
 
   listMovimentos: async (
-    params?: { empresa_id?: number; limit?: number; offset?: number }
+    params?: { empresa_id?: number; limit?: number; offset?: number; conta_contabilidade?: string; ano?: number; mes?: number }
   ): Promise<{ items: GtMovimento[]; total: number }> => {
     const { data } = await apiClient.get<{ items: GtMovimento[]; total: number }>(
       '/api/v1/terceiros/movimentos',
       { params }
+    );
+    return data;
+  },
+
+  updateMovimento: async (
+    movimentoId: number,
+    body: Partial<{ data_mov: string; grupo_terceiro: string; valor: number; conta_contabilidade: string; descricao: string }>
+  ): Promise<{ updated: number }> => {
+    const { data } = await apiClient.patch<{ updated: number }>(
+      `/api/v1/terceiros/movimentos/${movimentoId}`,
+      body
     );
     return data;
   },
