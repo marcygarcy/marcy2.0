@@ -24,8 +24,8 @@ export function OrdersList() {
     try {
       setLoading(true);
       setError(null);
-      const empresaId = empresaSelecionada?.id || 2; // Default: Teste 123
-      const marketplaceId = marketplaceSelecionado?.id || 1; // Default: Pixmania
+      const empresaId = empresaSelecionada?.id || 2;
+      const marketplaceId = marketplaceSelecionado?.id || 1;
       const response = await ordersApi.getAll(empresaId, marketplaceId, limit, page * limit);
       setOrders(response.orders);
       setTotal(response.total);

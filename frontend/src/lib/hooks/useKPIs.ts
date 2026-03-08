@@ -13,9 +13,8 @@ export function useKPIs() {
     try {
       setLoading(true);
       setError(null);
-      // Sempre usar empresa e marketplace (padrão: Teste 123 -> Pixmania)
-      const empresaId = empresaSelecionada?.id || 2; // Default: Teste 123
-      const marketplaceId = marketplaceSelecionado?.id || 1; // Default: Pixmania
+      const empresaId = empresaSelecionada?.id || 2;
+      const marketplaceId = marketplaceSelecionado?.id || 1;
       const data = await kpiApi.getAll(empresaId, marketplaceId);
       setKpis(data);
     } catch (err: any) {
