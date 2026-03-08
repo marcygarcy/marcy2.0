@@ -73,13 +73,25 @@ class TerceirosService:
         empresa_id: Optional[int] = None,
         limit: int = 200,
         offset: int = 0,
+        conta_contabilidade: Optional[str] = None,
+        ano: Optional[int] = None,
+        mes: Optional[int] = None,
     ) -> tuple:
-        """Lista movimentos GT com paginação."""
+        """Lista movimentos GT com paginação e filtros por diário e ano/mês."""
         where = "1=1"
         params: list = []
         if empresa_id is not None:
             where += " AND (empresa_id = ? OR empresa_id IS NULL)"
             params.append(empresa_id)
+        if conta_contabilidade and conta_contabilidade.strip():
+            where += " AND TRIM(COALESCE(conta_contabilidade,'')) = ?"
+            params.append(conta_contabilidade.strip())
+        if ano is not None and mes is not None:
+            where += " AND COALESCE(data_mov,'') LIKE ?"
+            params.append(f"{ano}-{mes:02d}-%")
+        elif ano is not None:
+            where += " AND COALESCE(data_mov,'') LIKE ?"
+            params.append(f"{ano}-%")
         total = self.conn.execute(
             "SELECT COUNT(*) FROM gt_movimentos WHERE " + where,
             params,
@@ -105,3 +117,38 @@ class TerceirosService:
             for r in rows
         ]
         return items, int(total)
+
+    def update_movimento(
+        self,
+        movimento_id: int,
+        updates: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Atualiza um movimento GT por id."""
+        if not updates:
+            return {"updated": 0}
+        set_parts = []
+        params: list = []
+        if "data_mov" in updates and updates["data_mov"] is not None:
+            set_parts.append("data_mov = ?")
+            params.append(updates["data_mov"])
+        if "grupo_terceiro" in updates and updates["grupo_terceiro"] is not None:
+            set_parts.append("grupo_terceiro = ?")
+            params.append(updates["grupo_terceiro"])
+        if "valor" in updates and updates["valor"] is not None:
+            set_parts.append("valor = ?")
+            params.append(float(updates["valor"]))
+        if "conta_contabilidade" in updates and updates["conta_contabilidade"] is not None:
+            set_parts.append("conta_contabilidade = ?")
+            params.append(updates["conta_contabilidade"])
+        if "descricao" in updates and updates["descricao"] is not None:
+            set_parts.append("descricao = ?")
+            params.append(updates["descricao"])
+        if not set_parts:
+            return {"updated": 0}
+        params.append(movimento_id)
+        self.conn.execute(
+            "UPDATE gt_movimentos SET " + ", ".join(set_parts) + " WHERE id = ?",
+            params,
+        )
+        self.conn.commit()
+        return {"updated": 1}
