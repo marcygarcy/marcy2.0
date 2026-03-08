@@ -30,6 +30,7 @@ import { RMAView } from '@/components/rma/RMAView';
 import { OfficeStockView } from '@/components/office/OfficeStockView';
 import { DocsView } from '@/components/docs/DocsView';
 import { GestaoTerceirosView } from '@/components/terceiros/GestaoTerceirosView';
+import { TabelasView } from '@/components/tabelas/TabelasView';
 import { BankStatement } from '@/components/bank/BankStatement';
 import { SalesChart } from '@/components/dashboard/SalesChart';
 import { TopProductsCard } from '@/components/dashboard/TopProductsCard';
@@ -123,6 +124,7 @@ export default function Home() {
   const isModuloDocs = moduloSelecionado?.id === 'documentacao';
   const isModuloSystemConfig = moduloSelecionado?.id === 'system-config';
   const isModuloGestaoTerceiros = moduloSelecionado?.id === 'gestao-terceiros';
+  const isModuloTabelas = moduloSelecionado?.id === 'tabelas';
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white flex">
@@ -168,6 +170,8 @@ export default function Home() {
           <SystemConfigView />
         ) : isModuloGestaoTerceiros ? (
           <GestaoTerceirosView />
+        ) : isModuloTabelas ? (
+          <TabelasView />
         ) : (
         <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>

@@ -7,7 +7,7 @@ import { marketplacesApi, Marketplace } from '@/lib/api/marketplaces';
 import {
   Building2, ChevronDown, ChevronRight, Store, CreditCard, FolderOpen,
   Users, TrendingUp, ShoppingCart, Landmark, MapPin, Package, RotateCcw,
-  Boxes, DollarSign, Zap, Globe, Link2, FileText, BookOpen, Settings2, Receipt,
+  Boxes, DollarSign, Zap, Globe, Link2, FileText, BookOpen, Settings2, Receipt, Table2,
 } from 'lucide-react';
 import { invoiceValidationApi } from '@/lib/api/invoiceValidation';
 
@@ -86,6 +86,7 @@ const MODULO_OFFICE_STOCK = { id: 'office-stock',             nome: 'Stock Escri
 const MODULO_BANCOS       = { id: 'bancos',                   nome: 'Bancos',              icone: 'Landmark' };
 const MODULO_FINANCAS     = { id: 'financas',                 nome: 'Finanças Globais',    icone: 'DollarSign' };
 const MODULO_DADOS_MESTRES = { id: 'dados-mestres',           nome: 'Dados Mestres',       icone: 'FolderOpen' };
+const MODULO_TABELAS      = { id: 'tabelas',                 nome: 'Tabelas',             icone: 'Table2' };
 const MODULO_TERCEIROS    = { id: 'gestao-terceiros',        nome: 'Gestão de Terceiros', icone: 'Handshake' };
 const MODULO_AUTOMATION   = { id: 'automation',              nome: 'Status de Automação', icone: 'Zap' };
 const MODULO_SYSTEM_CFG   = { id: 'system-config',           nome: 'Configuração Sistema', icone: 'Settings2' };
@@ -162,6 +163,8 @@ export function Sidebar() {
 
   // Recebimentos sub-tree
   const [expandedRecebimentos, setExpandedRecebimentos] = useState(true);
+  // Gestão Comercial sub-tree (Compras + Faturação AT como submódulos)
+  const [expandedGestaoComercial, setExpandedGestaoComercial] = useState(true);
   // Bancos sub-tree
   const [expandedBancos, setExpandedBancos] = useState(true);
   // Dados Mestres sub-tree
@@ -243,6 +246,7 @@ export function Sidebar() {
   };
 
   const isActive = (id: string) => moduloSelecionado?.id === id;
+  const isGestaoComercialActive = isActive(MODULO_BILLING.id) || isActive(MODULO_FATURACAO.id) || isActive(MODULO_COMPRAS.id);
 
   return (
     <div className="w-64 bg-slate-900 border-r border-slate-700 p-3 overflow-y-auto flex flex-col gap-0">
@@ -490,6 +494,13 @@ export function Sidebar() {
 
       {pillarD && (
         <div className="mb-3 space-y-1">
+          <NavItem
+            icon={<Table2 className="w-4 h-4 shrink-0" />}
+            label="Tabelas"
+            active={isActive(MODULO_TABELAS.id)}
+            activeColor="bg-amber-600 text-white"
+            onClick={() => setModuloSelecionado(MODULO_TABELAS)}
+          />
           <NavItem
             icon={<Users className="w-4 h-4 shrink-0" />}
             label="Gestão de Terceiros"
