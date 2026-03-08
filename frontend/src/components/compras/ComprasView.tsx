@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { ShoppingCart, Package, Loader2, CheckCircle, Download, Send, Globe, Copy, ChevronRight, AlertTriangle, FileText, Eye, X, Truck, RefreshCw, ExternalLink, BookOpen, Plus, Trash2, Undo2, Pencil } from 'lucide-react';
+import { ShoppingCart, Package, Loader2, CheckCircle, Download, Send, Globe, Copy, ChevronRight, AlertTriangle, FileText, Eye, X, Truck, RefreshCw, ExternalLink, BookOpen, Plus, Trash2, Undo2, Pencil, ClipboardList } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import { purchasesApi, type PendingSale, type PurchaseOrder, type GlobalPendingItem, type PendingPurchaseItem, type CheckoutDetail } from '@/lib/api/purchases';
 import { suppliersApi, type SupplierMaster } from '@/lib/api/suppliers';
@@ -12,7 +12,7 @@ import { DigitalOrderPreview } from './DigitalOrderPreview';
 import { financeApi } from '@/lib/api/finance';
 import { formatCurrency } from '@/lib/utils';
 
-type ActiveTab = 'central' | 'global' | 'pendentes' | 'checkout' | 'tracking';
+type ActiveTab = 'central' | 'global' | 'pendentes' | 'checkout' | 'orders' | 'tracking';
 
 const LOGISTICS_LABELS: Record<string, { label: string; color: string }> = {
   pending_receipt:       { label: 'Aguarda Receção',    color: 'text-yellow-400 bg-yellow-900/40' },
@@ -33,7 +33,7 @@ function LogBadge({ status }: { status: string }) {
 const MODULO_FINANCAS = { id: 'financas', nome: 'Finanças Globais', icone: 'DollarSign' } as const;
 
 export function ComprasView() {
-  const { empresaSelecionada, setModuloSelecionado, setFinancasNavigation } = useApp();
+  const { empresaSelecionada, setModuloSelecionado, setFinancasNavigation, setDadosMestresNavigation } = useApp();
   const [activeTab, setActiveTab] = useState<ActiveTab>('central');
 
   const [pending, setPending] = useState<PendingSale[]>([]);
@@ -81,6 +81,7 @@ export function ComprasView() {
   const [wizardObservacoes, setWizardObservacoes] = useState('');
   const [checkoutSuppliers, setCheckoutSuppliers] = useState<SupplierMaster[]>([]);
   const [wizardSupplierChanging, setWizardSupplierChanging] = useState(false);
+  const [wizardOpeningSite, setWizardOpeningSite] = useState(false);
   // Itens editáveis: id → { quantidade, custo_unitario }
   const [itemEdits, setItemEdits] = useState<Record<number, { quantidade: number; custo_unitario: number }>>({});
   // Itens adicionados de outras POs do mesmo fornecedor (consolidação escritório) — linhas âmbar
@@ -171,32 +172,40 @@ export function ComprasView() {
   }, [activeTab, supplierFilter]);
 
   useEffect(() => {
-    if (activeTab === 'checkout') {
+    if (activeTab === 'checkout' || activeTab === 'orders') {
       empresasApi.getAll().then(list => setEmpresasList(Array.isArray(list) ? list : [])).catch(() => {});
     }
   }, [activeTab]);
 
   useEffect(() => {
-    if (activeTab === 'checkout') {
+    if (activeTab === 'checkout' || activeTab === 'orders') {
       const eid = checkoutEmpresaId !== '' ? checkoutEmpresaId : (empresaId || undefined);
       setLoadingOrders(true);
-      setLoadingDrafts(true);
-      Promise.all([
-        purchasesApi.listPurchaseOrders(
-          eid, statusFilter || undefined, 100, 0,
-          checkoutDataInicio || undefined,
-          checkoutDataFim || undefined,
-        ),
-        purchasesApi.getDrafts(eid, 100, 0),
-      ])
-        .then(([ordersRes, draftsRes]) => {
-          setOrders(ordersRes.items);
-          setTotalOrders(ordersRes.total);
-          setDrafts(draftsRes.items);
-          setDraftsTotal(draftsRes.total);
-        })
-        .catch(() => { setOrders([]); setDrafts([]); setDraftsTotal(0); })
-        .finally(() => { setLoadingOrders(false); setLoadingDrafts(false); });
+      if (activeTab === 'checkout') setLoadingDrafts(true);
+      const ordersPromise = purchasesApi.listPurchaseOrders(
+        eid, statusFilter || undefined, 100, 0,
+        checkoutDataInicio || undefined,
+        checkoutDataFim || undefined,
+      );
+      if (activeTab === 'checkout') {
+        Promise.all([ordersPromise, purchasesApi.getDrafts(eid, 100, 0)])
+          .then(([ordersRes, draftsRes]) => {
+            setOrders(ordersRes.items);
+            setTotalOrders(ordersRes.total);
+            setDrafts(draftsRes.items);
+            setDraftsTotal(draftsRes.total);
+          })
+          .catch(() => { setOrders([]); setDrafts([]); setDraftsTotal(0); })
+          .finally(() => { setLoadingOrders(false); setLoadingDrafts(false); });
+      } else {
+        ordersPromise
+          .then((ordersRes) => {
+            setOrders(ordersRes.items);
+            setTotalOrders(ordersRes.total);
+          })
+          .catch(() => { setOrders([]); })
+          .finally(() => setLoadingOrders(false));
+      }
     }
   }, [activeTab, empresaId, statusFilter, checkoutEmpresaId, checkoutDataInicio, checkoutDataFim]);
 
@@ -557,10 +566,21 @@ export function ComprasView() {
         );
       }
       setSupplierOrderIdInput('');
-      if (wizardStep + 1 >= wizardPOIds.length) {
+      // Refetch ordens e drafts para a UI refletir o novo estado (PO passa a Encomendado)
+      const eid = checkoutEmpresaId !== '' ? checkoutEmpresaId : (empresaId || undefined);
+      const [ordersRes, draftsRes] = await Promise.all([
+        purchasesApi.listPurchaseOrders(eid, statusFilter || undefined, 100, 0, checkoutDataInicio || undefined, checkoutDataFim || undefined),
+        purchasesApi.getDrafts(eid, 100, 0),
+      ]);
+      setOrders(ordersRes.items);
+      setTotalOrders(ordersRes.total);
+      setDrafts(draftsRes.items);
+      setDraftsTotal(draftsRes.total);
+      const isLastPo = wizardStep + 1 >= wizardPOIds.length;
+      if (isLastPo) {
         setWizardPOIds([]);
         setWizardStep(0);
-        setActiveTab('checkout');
+        setActiveTab('orders'); // Mostrar Orders com a(s) PO(s) já como Encomendado
       } else {
         setWizardStep((s) => s + 1);
       }
@@ -654,6 +674,37 @@ export function ComprasView() {
                       ))}
                     </select>
                     {wizardSupplierChanging && <p className="text-slate-400 text-xs mt-1">A atualizar...</p>}
+                    {wizardPODetail.supplier_id != null && (
+                      <button
+                        type="button"
+                        disabled={wizardOpeningSite}
+                        onClick={async () => {
+                          const sid = wizardPODetail.supplier_id!;
+                          setWizardOpeningSite(true);
+                          try {
+                            const data = await suppliersApi.getAccess(sid);
+                            const url = (data.url_site ?? '').trim();
+                            if (data.has_access && url) {
+                              const href = url.startsWith('http') ? url : `https://${url}`;
+                              window.open(href, '_blank', 'noopener,noreferrer');
+                            } else {
+                              alert('Este fornecedor ainda não tem URL de acesso configurado. Configure em Dados Mestres → Fornecedores → ficha do fornecedor → aba Acessos.');
+                              setDadosMestresNavigation({ supplierId: sid, tab: 'acessos' });
+                              setModuloSelecionado({ id: 'dados-mestres-fornecedores', nome: 'Fornecedores' });
+                            }
+                          } catch {
+                            alert('Erro ao obter o URL do fornecedor. Verifique a ligação ao backend.');
+                          } finally {
+                            setWizardOpeningSite(false);
+                          }
+                        }}
+                        className="mt-2 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-amber-700/50 text-amber-200 hover:bg-amber-700 border border-amber-600/50 text-sm disabled:opacity-50"
+                        title="Ler o URL guardado na ficha do fornecedor (Acessos) e abrir o site numa nova janela"
+                      >
+                        {wizardOpeningSite ? <Loader2 className="w-4 h-4 shrink-0 animate-spin" /> : <ExternalLink className="w-4 h-4 shrink-0" />}
+                        Abrir site do fornecedor
+                      </button>
+                    )}
                     <p className="text-slate-400 text-xs mt-2 pt-2 border-t border-slate-600">
                       Tipo de envio: {(wizardPODetail.tipo_envio ?? '').toLowerCase() === 'escritorio'
                         ? <span className="text-emerald-400 font-medium">Escritório</span>
@@ -1024,7 +1075,7 @@ export function ComprasView() {
       )}
 
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as ActiveTab)}>
-        <TabsList className="bg-slate-800 border border-slate-600 grid grid-cols-6">
+        <TabsList className="bg-slate-800 border border-slate-600 grid grid-cols-7">
           <TabsTrigger value="central" className="data-[state=active]:bg-amber-600 data-[state=active]:text-white">
             <Package className="w-4 h-4 mr-2" />
             Central de Compras
@@ -1040,6 +1091,10 @@ export function ComprasView() {
           <TabsTrigger value="checkout" className="data-[state=active]:bg-amber-600 data-[state=active]:text-white">
             <ShoppingCart className="w-4 h-4 mr-2" />
             Checkout
+          </TabsTrigger>
+          <TabsTrigger value="orders" className="data-[state=active]:bg-amber-600 data-[state=active]:text-white">
+            <ClipboardList className="w-4 h-4 mr-2" />
+            Orders
           </TabsTrigger>
           <TabsTrigger value="tracking" className="data-[state=active]:bg-amber-600 data-[state=active]:text-white">
             <Truck className="w-4 h-4 mr-2" />
@@ -1381,10 +1436,14 @@ export function ComprasView() {
               </CardContent>
             </Card>
           )}
+        </TabsContent>
+
+        {/* ── Tab: Orders (Ordens de compra) ─────────────────────── */}
+        <TabsContent value="orders" className="mt-6">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <ShoppingCart className="w-5 h-5 text-amber-400" />
+                <ClipboardList className="w-5 h-5 text-amber-400" />
                 Ordens de compra
               </CardTitle>
             </CardHeader>
