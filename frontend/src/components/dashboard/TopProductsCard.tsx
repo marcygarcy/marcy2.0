@@ -28,8 +28,8 @@ export function TopProductsCard() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const empresaId = empresaSelecionada?.id || 2; // Default: Teste 123
-      const marketplaceId = marketplaceSelecionado?.id || 1; // Default: Pixmania
+      const empresaId = empresaSelecionada?.id || 2;
+      const marketplaceId = marketplaceSelecionado?.id || 1;
       const response = await kpiApi.getProdutosMaisVendidos(empresaId, marketplaceId);
       setHistorico(response.historico);
       setUltimos60dias(response.ultimos_60_dias);

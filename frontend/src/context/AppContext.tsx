@@ -63,20 +63,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     icone: '💳'
   };
 
-  // Valores padrão: Teste 123 (ID=2) e Pixmania (ID=1)
-  const DEFAULT_EMPRESA: Empresa = {
-    id: 2,
-    nome: "Teste 123",
-    codigo: "GHS",
-    ativo: true
-  };
-  
-  const DEFAULT_MARKETPLACE: Marketplace = {
-    id: 1,
-    empresa_id: 2,
-    nome: "Pixmania",
-    ativo: true
-  };
+  // Valores padrão: carregados da API via Sidebar
+  // Não usar defaults com nomes hardcoded — deixar NULL até Sidebar carregar da API
+  const DEFAULT_EMPRESA: Empresa | null = null;
+
+  const DEFAULT_MARKETPLACE: Marketplace | null = null;
 
   const [moduloSelecionado, setModuloSelecionadoState] = useState<Modulo | null>(DEFAULT_MODULO);
   const [empresaSelecionada, setEmpresaSelecionadaState] = useState<Empresa | null>(DEFAULT_EMPRESA);
@@ -110,25 +101,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setEmpresaSelecionadaState(empresa);
       } catch (e) {
         console.error('Erro ao carregar empresa do localStorage:', e);
-        setEmpresaSelecionadaState(DEFAULT_EMPRESA);
+        setEmpresaSelecionadaState(null);
       }
-    } else {
-      setEmpresaSelecionadaState(DEFAULT_EMPRESA);
-      localStorage.setItem('empresaSelecionada', JSON.stringify(DEFAULT_EMPRESA));
     }
-    
+    // Se não houver salvo, fica null (Sidebar carregará da API)
+
     if (marketplaceSaved) {
       try {
         const marketplace = JSON.parse(marketplaceSaved);
         setMarketplaceSelecionadoState(marketplace);
       } catch (e) {
         console.error('Erro ao carregar marketplace do localStorage:', e);
-        setMarketplaceSelecionadoState(DEFAULT_MARKETPLACE);
+        setMarketplaceSelecionadoState(null);
       }
-    } else {
-      setMarketplaceSelecionadoState(DEFAULT_MARKETPLACE);
-      localStorage.setItem('marketplaceSelecionado', JSON.stringify(DEFAULT_MARKETPLACE));
     }
+    // Se não houver salvo, fica null (Sidebar carregará da API)
   }, []);
 
   const setModuloSelecionado = (modulo: Modulo | null) => {
@@ -138,34 +125,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const setEmpresaSelecionada = (empresa: Empresa | null) => {
-    const empresaToUse = empresa || DEFAULT_EMPRESA;
-    setEmpresaSelecionadaState(empresaToUse);
-    localStorage.setItem('empresaSelecionada', JSON.stringify(empresaToUse));
-    
+    setEmpresaSelecionadaState(empresa);
+    if (empresa) {
+      localStorage.setItem('empresaSelecionada', JSON.stringify(empresa));
+    } else {
+      localStorage.removeItem('empresaSelecionada');
+    }
+
     // Ao mudar empresa, verificar se o marketplace ainda é válido
-    if (marketplaceSelecionado && marketplaceSelecionado.empresa_id !== empresaToUse.id) {
-      // Se o marketplace não pertence à nova empresa, usar o primeiro marketplace da empresa ou Pixmania
-      if (empresaToUse.id === 2) {
-        // Se voltar para Teste 123, usar Pixmania
-        setMarketplaceSelecionadoState(DEFAULT_MARKETPLACE);
-        localStorage.setItem('marketplaceSelecionado', JSON.stringify(DEFAULT_MARKETPLACE));
-      } else {
-        // Para outras empresas, limpar marketplace (pode ser selecionado depois)
-        setMarketplaceSelecionadoState(null);
-        localStorage.removeItem('marketplaceSelecionado');
-      }
+    if (empresa && marketplaceSelecionado && marketplaceSelecionado.empresa_id !== empresa.id) {
+      // Se o marketplace não pertence à nova empresa, limpar
+      setMarketplaceSelecionadoState(null);
+      localStorage.removeItem('marketplaceSelecionado');
     }
   };
 
   const setMarketplaceSelecionado = (marketplace: Marketplace | null) => {
-    const marketplaceToUse = marketplace || DEFAULT_MARKETPLACE;
-    setMarketplaceSelecionadoState(marketplaceToUse);
-    localStorage.setItem('marketplaceSelecionado', JSON.stringify(marketplaceToUse));
-    
-    // Garantir que a empresa correspondente está selecionada
-    if (marketplaceToUse && (!empresaSelecionada || empresaSelecionada.id !== marketplaceToUse.empresa_id)) {
-      // Não fazer nada aqui, pois a empresa já deve estar selecionada
-      // Mas podemos garantir que está sincronizado
+    setMarketplaceSelecionadoState(marketplace);
+    if (marketplace) {
+      localStorage.setItem('marketplaceSelecionado', JSON.stringify(marketplace));
+    } else {
+      localStorage.removeItem('marketplaceSelecionado');
     }
   };
 

@@ -25,8 +25,8 @@ export function SalesChart() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const empresaId = empresaSelecionada?.id || 2; // Default: Teste 123
-      const marketplaceId = marketplaceSelecionado?.id || 1; // Default: Pixmania
+      const empresaId = empresaSelecionada?.id || 2;
+      const marketplaceId = marketplaceSelecionado?.id || 1;
       const response = await kpiApi.getVendasBrutasPorCiclo(empresaId, marketplaceId);
       
       // Formatar dados para o gráfico - usar apenas os últimos 12 ciclos para melhor visualização
